@@ -99,7 +99,7 @@ You will be prompted interactively to:
 
 All results are saved as CSV files in the configured output directory. Files are named with the domain name and a timestamp to avoid overwrites.
 
-```
+
 
 
 ## 🤝 Contributing
