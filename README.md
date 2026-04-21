@@ -68,18 +68,6 @@ You will be prompted interactively to:
 4. Optionally specify a Domain Controller
 5. Enter credentials for authentication
 
-### Optional Parameters
-
-| Parameter | Description | Default |
-|---|---|---|
-| `-OutputPath` | Directory to save CSV reports | `C:\Users\...\Desktop\AD` |
-| `-TargetDomainController` | Skip DNS discovery and use a specific DC | Auto-discovered |
-
-```powershell
-# Specify a custom output path and DC
-.\ADAudit.ps1 -OutputPath "C:\Reports" -TargetDomainController "dc01.corp.local"
-```
-
 ---
 
 ## 📂 Modules
