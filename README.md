@@ -45,10 +45,10 @@ A PowerShell-based tool for auditing and reconnaissance of Active Directory envi
 
 ```powershell
 # Clone the repository
-git clone https://github.com/YOURUSERNAME/ADAudit.git
+git clone https://github.com/MaishaManarat/Active-Directory-Users-Security-Audit.git
 
 # Navigate to the directory
-cd ADAudit
+cd Active-Directory-Users-Security-Audit
 ```
 
 No additional installation steps are needed. The script uses built-in .NET libraries only.
