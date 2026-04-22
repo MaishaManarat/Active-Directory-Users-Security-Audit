@@ -56,11 +56,15 @@ No additional installation steps are needed. The script uses built-in .NET libra
 
 ## 🚀 Usage
 
+To run Full Language Mode (FLM) evironment- Usually where user has local admin privileges in the device
+
 ```powershell
 .\ADAudit.ps1
 ```
 
-To run in CLM environment
+
+
+To run in Constrained Language Mode (CLM) environment- Usually where user has restrictive privileges
 ```powershell
 .\ADAudit_CLM.ps1
 ```
