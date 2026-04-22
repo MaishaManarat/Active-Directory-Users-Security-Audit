@@ -99,7 +99,7 @@ You will be prompted interactively to:
 | `a3` | **Service Accounts** | User accounts with the "Password Never Expires" flag set |
 | `a4` | **Dormant Accounts** | Enabled accounts with no login activity beyond a configurable threshold |
 | `a5` | **Stale Accounts** | Enabled accounts whose password has not been changed within a configurable period |
-| `a6` | **Unconstrained Delegation** | User accounts trusted for unconstrained Kerberos delegation |
+| `a6` | **Unconstrained Delegation** | User accounts trusted for unconstrained delegation |
 | `a7` | **Kerberoastable Accounts** | Enabled user accounts with a registered Service Principal Name (SPN) |
 | `all` | **Full Audit** | Runs all audit modules (a1 through a7) sequentially |
 
