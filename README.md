@@ -75,8 +75,8 @@ You will be prompted interactively to:
 1. Choose a mode: `recon` or `audit`
 2. Select a specific module (e.g. `a1`, `r2`, or `all`)
 3. Enter the target domain name (e.g. `corp.local`)
-4. Optionally specify a Domain Controller
-5. Enter credentials for authentication
+4. Enter credentials for authentication
+5. You have the freedom to choose to define days in stale accounts/dormant accounts
 
 ---
 
