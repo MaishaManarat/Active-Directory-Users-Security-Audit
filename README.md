@@ -13,8 +13,6 @@ A PowerShell-based tool for auditing and reconnaissance of Active Directory envi
 - [Modules](#modules)
   - [Recon Modules](#recon-modules)
   - [Audit Modules](#audit-modules)
-- [Output](#output)
-- [Examples](#examples)
 - [Contributing](#contributing)
 - [License](#license)
 
@@ -26,6 +24,7 @@ A PowerShell-based tool for auditing and reconnaissance of Active Directory envi
 - Works against remote domains with supplied credentials
 - Auto-discovers Domain Controllers via DNS SRV records
 - Exports all results to timestamped CSV files
+- ADAduit_CLM.ps1 is the version to run in CLM (Constrained Language Mode) environment (basically i ran my code through claude to create the CLM version.)
 
 
 ---
@@ -60,6 +59,12 @@ No additional installation steps are needed. The script uses built-in .NET libra
 ```powershell
 .\ADAudit.ps1
 ```
+
+```powershell in CLM environment
+.\ADAudit_CLM.ps1
+```
+
+
 
 You will be prompted interactively to:
 1. Choose a mode: `recon` or `audit`
