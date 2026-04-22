@@ -60,7 +60,8 @@ No additional installation steps are needed. The script uses built-in .NET libra
 .\ADAudit.ps1
 ```
 
-```powershell in CLM environment
+To run in CLM environment
+```powershell
 .\ADAudit_CLM.ps1
 ```
 
