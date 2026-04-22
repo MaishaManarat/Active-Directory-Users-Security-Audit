@@ -163,6 +163,7 @@ $directoryEntry = New-Object System.DirectoryServices.DirectoryEntry(
     $authType
 )
 
+<#
 try {
     $test = $directoryEntry.NativeGuid #NativeGuid is a unique ID that every object in Active Directory has, To get the NativeGuid, PowerShell is forced to actually perform the LDAP "Bind" (the login).
     Write-Host "Success! Connected to AD as $($Credential.UserName)" -ForegroundColor Cyan
@@ -170,6 +171,10 @@ try {
 catch {
     Write-Error "Authentication Failed: $($_.Exception.Message)" 
 }
+
+#>
+
+
 
 
 #$directoryEntry = New-Object System.DirectoryServices.DirectoryEntry($ldapPath, $Credential.Username, $Credential.GetNetworkCredential().Password)
@@ -844,66 +849,94 @@ In the world of LDAP (the language Active Directory speaks), the logic is Prefix
 #>
 
 
-# Executable Option Selection
+ # THE AUTHENTICATION TEST 
 
-Switch($TargetAudit){
-    "r1" {
-        UserInfo -TargetDomainName $TargetDomain -TargetDomainDN $TargetDomainDN -Credential $Credential -DomainController $dcToUse -OutpuPath $OutputPath
+try {
+      # RefreshCache() forces an immediate LDAP Bind. 
+     # If the password is wrong or the server is down, it throws a Terminating Error.
+    $directoryEntry.RefreshCache()
+    
+    Write-Host "Success! Authenticated as $($Credential.UserName)" -ForegroundColor Cyan
+
+    Write-Host ""
+
+    # Executable Option Selection
+
+
+    Switch($TargetAudit){
+        "r1" {
+            UserInfo -TargetDomainName $TargetDomain -TargetDomainDN $TargetDomainDN -Credential $Credential -DomainController $dcToUse -OutpuPath $OutputPath
+        }
+    
+        "r2" {
+            SIDTranslator -TargetDomainName $TargetDomain -TargetDomainDN $TargetDomainDN -Credential $Credential -DomainController $dcToUse -OutpuPath $OutputPath
+        }
+    
+        "r3" {
+            UserDump -TargetDomainName $TargetDomain -TargetDomainDN $TargetDomainDN -Credential $Credential -DomainController $dcToUse -OutpuPath $OutputPath
+        }
+    
+        "a1" {
+            Admins -TargetDomainName $TargetDomain -TargetDomainDN $TargetDomainDN -Credential $Credential -DomainController $dcToUse -OutpuPath $OutputPath
+        }
+    
+        "a2" {
+            DCSync -TargetDomainName $TargetDomain -TargetDomainDN $TargetDomainDN -Credential $Credential -DomainController $dcToUse -OutpuPath $OutputPath
+        }
+    
+        "a3" {
+            ServiceAccounts -TargetDomainName $TargetDomain -TargetDomainDN $TargetDomainDN -Credential $Credential -DomainController $dcToUse -OutpuPath $OutputPath
+        }
+    
+        "a4" {
+            DormantAccounts -TargetDomainName $TargetDomain -TargetDomainDN $TargetDomainDN -Credential $Credential -DomainController $dcToUse -OutpuPath $OutputPath
+        }
+    
+        "a5" {
+            StaleAccounts -TargetDomainName $TargetDomain -TargetDomainDN $TargetDomainDN -Credential $Credential -DomainController $dcToUse -OutpuPath $OutputPath
+        }
+    
+        "a6" {
+            Delegation -TargetDomainName $TargetDomain -TargetDomainDN $TargetDomainDN -Credential $Credential -DomainController $dcToUse -OutpuPath $OutputPath
+        }
+    
+        "a7" {
+            Kerberoast -TargetDomainName $TargetDomain -TargetDomainDN $TargetDomainDN -Credential $Credential -DomainController $dcToUse -OutpuPath $OutputPath
+        }
+    
+    
+        "all" {
+            Write-Host "Running all auditing modules" -ForegroundColor Yellow
+            Admins -TargetDomainName $TargetDomain -TargetDomainDN $TargetDomainDN -Credential $Credential -DomainController $dcToUse -OutpuPath $OutputPath
+            DCSync -TargetDomainName $TargetDomain -TargetDomainDN $TargetDomainDN -Credential $Credential -DomainController $dcToUse -OutpuPath $OutputPath
+            ServiceAccounts -TargetDomainName $TargetDomain -TargetDomainDN $TargetDomainDN -Credential $Credential -DomainController $dcToUse -OutpuPath $OutputPath
+            DormantAccounts -TargetDomainName $TargetDomain -TargetDomainDN $TargetDomainDN -Credential $Credential -DomainController $dcToUse -OutpuPath $OutputPath
+            StaleAccounts -TargetDomainName $TargetDomain -TargetDomainDN $TargetDomainDN -Credential $Credential -DomainController $dcToUse -OutpuPath $OutputPath
+            Delegation -TargetDomainName $TargetDomain -TargetDomainDN $TargetDomainDN -Credential $Credential -DomainController $dcToUse -OutpuPath $OutputPath
+            Kerberoast -TargetDomainName $TargetDomain -TargetDomainDN $TargetDomainDN -Credential $Credential -DomainController $dcToUse -OutpuPath $OutputPath
+        }
+    
+        Default {
+            Write-Host "`n[!] Invalid option selected" -ForegroundColor Red
+        }
+    
     }
 
-    "r2" {
-        SIDTranslator -TargetDomainName $TargetDomain -TargetDomainDN $TargetDomainDN -Credential $Credential -DomainController $dcToUse -OutpuPath $OutputPath
-    }
-
-    "r3" {
-        UserDump -TargetDomainName $TargetDomain -TargetDomainDN $TargetDomainDN -Credential $Credential -DomainController $dcToUse -OutpuPath $OutputPath
-    }
-
-    "a1" {
-        Admins -TargetDomainName $TargetDomain -TargetDomainDN $TargetDomainDN -Credential $Credential -DomainController $dcToUse -OutpuPath $OutputPath
-    }
-
-    "a2" {
-        DCSync -TargetDomainName $TargetDomain -TargetDomainDN $TargetDomainDN -Credential $Credential -DomainController $dcToUse -OutpuPath $OutputPath
-    }
-
-    "a3" {
-        ServiceAccounts -TargetDomainName $TargetDomain -TargetDomainDN $TargetDomainDN -Credential $Credential -DomainController $dcToUse -OutpuPath $OutputPath
-    }
-
-    "a4" {
-        DormantAccounts -TargetDomainName $TargetDomain -TargetDomainDN $TargetDomainDN -Credential $Credential -DomainController $dcToUse -OutpuPath $OutputPath
-    }
-
-    "a5" {
-        StaleAccounts -TargetDomainName $TargetDomain -TargetDomainDN $TargetDomainDN -Credential $Credential -DomainController $dcToUse -OutpuPath $OutputPath
-    }
-
-    "a6" {
-        Delegation -TargetDomainName $TargetDomain -TargetDomainDN $TargetDomainDN -Credential $Credential -DomainController $dcToUse -OutpuPath $OutputPath
-    }
-
-    "a7" {
-        Kerberoast -TargetDomainName $TargetDomain -TargetDomainDN $TargetDomainDN -Credential $Credential -DomainController $dcToUse -OutpuPath $OutputPath
-    }
-
-
-    "all" {
-        Write-Host "Running all auditing modules" -ForegroundColor Yellow
-        Admins -TargetDomainName $TargetDomain -TargetDomainDN $TargetDomainDN -Credential $Credential -DomainController $dcToUse -OutpuPath $OutputPath
-        DCSync -TargetDomainName $TargetDomain -TargetDomainDN $TargetDomainDN -Credential $Credential -DomainController $dcToUse -OutpuPath $OutputPath
-        ServiceAccounts -TargetDomainName $TargetDomain -TargetDomainDN $TargetDomainDN -Credential $Credential -DomainController $dcToUse -OutpuPath $OutputPath
-        DormantAccounts -TargetDomainName $TargetDomain -TargetDomainDN $TargetDomainDN -Credential $Credential -DomainController $dcToUse -OutpuPath $OutputPath
-        StaleAccounts -TargetDomainName $TargetDomain -TargetDomainDN $TargetDomainDN -Credential $Credential -DomainController $dcToUse -OutpuPath $OutputPath
-        Delegation -TargetDomainName $TargetDomain -TargetDomainDN $TargetDomainDN -Credential $Credential -DomainController $dcToUse -OutpuPath $OutputPath
-        Kerberoast -TargetDomainName $TargetDomain -TargetDomainDN $TargetDomainDN -Credential $Credential -DomainController $dcToUse -OutpuPath $OutputPath
-    }
-
-    Default {
-        Write-Host "`n[!] Invalid option selected" -ForegroundColor Red
-    }
 
 }
+catch {
+    # 3. THE FAIL-SAFE
+    Write-Host "Authentication failed. Script cannot continue." -ForegroundColor Red
+    #Write-Error "Details: $($_.Exception.Message)"
+    
+    # Use 'exit' to stop the entire script immediately
+    exit 1 
+}
+
+
+
+
+
 
 
 Write-Host ""
