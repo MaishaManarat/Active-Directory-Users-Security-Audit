@@ -24,9 +24,8 @@ A PowerShell-based tool for auditing and reconnaissance of Active Directory envi
 - Works against remote domains with supplied credentials
 - Auto-discovers Domain Controllers via DNS SRV records
 - Exports all results to timestamped CSV files
-- ADAduit_CLM.ps1 is the version to run in CLM (Constrained Language Mode) environment (-this feature is not completed yet, at development mode)
-
-
+- ADAduit_CLM.ps1 is the version to run in CLM (Constrained Language Mode) environment (-ran my ADAduit.ps1 code through claude to create the CLM version). P.S: dcsync option might not work.
+- cross domain check might not work depending on the environment and netowork architecure. 
 ---
 
 ## ⚙️ Requirements
