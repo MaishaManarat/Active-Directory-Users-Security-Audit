@@ -89,13 +89,16 @@ Write-Host "--------------------------------------------------------------------
 Write-Host ""
 $Tool = Read-Host -Prompt "Tool to Use: (recon/audit): "
 
+
+
 if($Tool -eq "Audit"){
-    $TargetAudit = Read-Host -Prompt "Audit Point (e.g a1,a2,a3,a4,a5,a6,a7 or all): " 
+    $TargetAudit = Read-Host -Prompt "Audit Point (a1-a7 or all): " 
 }elseif($Tool -eq "Recon"){
-    $TargetAudit = Read-Host -Prompt "Recon Point (e.g r1,r2 or r3): " 
+    $TargetAudit = Read-Host -Prompt "Recon Point (r1, r2, or r3): " 
 }else{
     Write-Host "Incorrect Option"
 }
+
 
 
 
