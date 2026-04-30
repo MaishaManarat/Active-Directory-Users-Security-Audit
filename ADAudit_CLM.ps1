@@ -146,7 +146,7 @@ if ($TargetDomainController -ne "") {
 Write-Host "Enter User Credentials" -ForegroundColor Yellow
 
 $username= Read-Host -Prompt "Username: "
-$Credential = Get-Credential -Message "Enter Credentials" -Username "$TargetDomain\$username" 
+#$Credential = Get-Credential -Message "Enter Credentials" -Username "$TargetDomain\$username" 
 
 
  
@@ -155,7 +155,9 @@ $TimeStamp = Get-Date -Format 'yyyyMMdd_HHmmss'
 
 # LDAP Path
 $ldapPath = "LDAP://$dcToUse/$TargetDomainDN" # LDAP://192.168.1.10/DC=corp,DC=local
-$plainPwd    = $Credential.GetNetworkCredential().Password
+#$plainPwd    = $Credential.GetNetworkCredential().Password
+$plainPwd = Read-Host -Prompt "Password: " -AsSecureString
+
 
 
 # ─────────────────────────────────────────────────────────────────────────────
