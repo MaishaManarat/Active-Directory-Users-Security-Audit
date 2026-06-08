@@ -1,63 +1,60 @@
 <#
-.DISCLAIMER
-    I ran my ADAudit.ps1 code through claude to recreate CLM version
-
 .SYNOPSIS
-    Audit Active Directory Users - CLM Hardened Edition
+    Audit Active Directory Users
 .DESCRIPTION
-    Rewritten for Constrained Language Mode (CLM) environments.
-
-    KEY CLM ADAPTATIONS:
-    - No New-Object System.DirectoryServices.* (blocked in CLM)
-    - Uses [ADSI] and [ADSISearcher] type accelerators (CLM-whitelisted)
-    - No Add-Type / reflection
-    - No ScriptBlock literals assigned to variables (where avoidable)
-    - No direct .NET type instantiation beyond accelerators
-    - Uses the current "authenticated session token" from the net use session.
+    This Script has two parts. AD Users Audit and AD User Recon
 
     =================Active Directory Recon==================
-    r1. Domain User Information Retriever
-    r2. SID Translator
-    r3. User Dump
+    1. Domain User Information Retriever 
+    2. SID Translator
+    3. User Dump
 
     =================Active Directory Security Audit==================
-    a1. Administrator Accounts
-    a2. Accounts with DCSync Privileges
-    a3. Service Accounts: Accounts with no expiry date
-    a4. Dormant Accounts: Inactive accounts
-    a5. Stale Accounts: Password not changed for long time
-    a6. Accounts with unconstrained delegation
-    a7. Kerberoastable Accounts: Accounts with registered SPN
-
-.PARAMETER OutputPath
-    Directory to save CSV reports.
+    1. Administrator Accounts
+    2. Accounts with DCSync Privileges"
+    3. Service Accounts: Accounts with no expiry date"
+    4. Dormant Accounts: Inactive accounts "
+    5. Stale Accounts: Password not changed for long time"
+    6. Accounts with unconstrained delegation"
+    7. Kerberoastable Accounts: Accounts with registered SPN"
+    
+.PARAMETER ExportOnly
+    Switch to suppress console output and only export to CSV.
 .EXAMPLE
-    .\ADAudit_CLM.ps1 
+    .\ADAudit.ps1
 #>
+
+
+# Start
 
 param(
     [string]$OutputPath = "C:\Users\maisha.manarat\Desktop\AD", #Change Path to where you want to save the output file
-    [string]$TargetDomainController = ""
+    #[string]$ExportOnly,
+    [string]$TargetDomainController,
+    [string]$TargetAudit,
+    [ADSI]$directoryEntry,
+    [PsCredential]$Credential
 )
 
-$OutputPath = Get-Location
 
-# logo
+# Logo
 
-Write-Host @"
-   _____          __  .__               ________  .__                       __
-  /  _  \   _____/  |_|__|__  __ ____   \______ \ |__|______   ____   _____/  |_  ___________
- /  /_\  \_/ ___\   __\  \  \/ // __ \   |    |  \|  \_  __ \_/ __ \_/ ___\   __\/  _ \_  __ \
-/    |    \  \___|  | |  |\   /\  ___/   |    `   \  ||  | \/\  ___/\  \___|  | (  <_> )  | \/
-\____|__  /\___  >__| |__| \_/  \___  > /_______  /__||__|    \___  >\___  >__|  \____/|__|
-        \/     \/                   \/          \/                \/     \/
-"@ -ForegroundColor Green
+Write-Host "   _____          __  .__               ________  .__                       __                       
+  /  _  \   _____/  |_|__|__  __ ____   \______ \ |__|______   ____   _____/  |_  ___________ ___.__.
+ /  /_\  \_/ ___\   __\  \  \/ // __ \   |    |  \|  \_  __ \_/ __ \_/ ___\   __\/  _ \_  __ <   |  |
+/    |    \  \___|  | |  |\   /\  ___/   |    `   \  ||  | \/\  ___/\  \___|  | (  <_> )  | \/\___  |
+\____|__  /\___  >__| |__| \_/  \___  > /_______  /__||__|    \___  >\___  >__|  \____/|__|   / ____|
+        \/     \/                   \/          \/                \/     \/                   \/     " -ForegroundColor Green
 
+
+
+Write-Host "`n`n"
+
+Write-Host "======================================================" -ForegroundColor Green
+Write-Host "          Active Directory Audit & Utility Tool       " -ForegroundColor Cyan
+Write-Host "======================================================" -ForegroundColor Green
 Write-Host ""
-Write-Host "==========================================================="   -ForegroundColor Green
-Write-Host "     Active Directory Audit & Utility Tool [CLM Version]      "     -ForegroundColor Cyan
-Write-Host "==========================================================="     -ForegroundColor Green
-Write-Host ""
+
 
 # Check if output path exists
 
@@ -90,24 +87,51 @@ Write-Host "a7. Kerberoastable Accounts: Accounts with registered SPN"
 Write-Host "-----------------------------------------------------------------------------------" -ForegroundColor Green
 
 Write-Host ""
+Write-Host "Select Option (For Recon: r1,r2 or r3 || For Audit: a1,a2,a3,a4,a5,a6,a7 or all)"
+$TargetAudit = Read-Host -Prompt "Tool to Use: "
 
 
-#choose tool
+#if($Tool -eq "Audit"){
+#    $TargetAudit = Read-Host -Prompt "Audit Point (e.g a1,a2,a3,a4,a5,a6,a7 or all): " 
+#}elseif($Tool -eq "Recon"){
+#    $TargetAudit = Read-Host -Prompt "Recon Point (e.g r1,r2 or r3): " 
+#}else{
+#    Write-Host "Incorrect Option"
+#}
 
-$Tool = Read-Host -Prompt "Tool to Use: (recon/audit): "
 
-if($Tool -eq "Audit"){
-    $TargetAudit = Read-Host -Prompt "Audit Point (a1-a7 or all): " 
-}elseif($Tool -eq "Recon"){
-    $TargetAudit = Read-Host -Prompt "Recon Point (r1, r2, or r3): " 
-}else{
-    Write-Host "Incorrect Option"
+
+
+Write-Host "-----------------------------------------------------------------------------------" -ForegroundColor Green
+
+
+
+# Report Format Selection
+
+Write-Host ""
+Write-Host "---------------------------------Report Format-----------------------------" -ForegroundColor Green
+Write-Host "1. CSV"
+Write-Host "2. HTML"
+Write-Host "3. Both (CSV + HTML)"
+Write-Host "4. Screen only (no files saved)"
+$ReportFormat = Read-Host -Prompt "Select report format (1/2/3/4): "
+
+$ExportCSV    = ($ReportFormat -eq "1" -or $ReportFormat -eq "3")
+$ExportHTML   = ($ReportFormat -eq "2" -or $ReportFormat -eq "3")
+$ScreenOnly   = ($ReportFormat -eq "4")
+
+if (-not $ExportCSV -and -not $ExportHTML -and -not $ScreenOnly) {
+    Write-Host "Invalid selection, defaulting to CSV." -ForegroundColor Yellow
+    $ExportCSV = $true
 }
 
+if ($ScreenOnly) {
+    Write-Host "Screen-only mode: results will be displayed in the console and no files will be saved." -ForegroundColor Cyan
+}
 
+Write-Host ""
 
-
-
+Write-Host "-----------------------------------------------------------------------------------" -ForegroundColor Green
 
 # Get the target domain
 $TargetDomain = Read-Host -Prompt "Enter the target domain name to audit (e.g target.com): "
@@ -120,33 +144,33 @@ Write-Host "Target Domain: $TargetDomain" -ForegroundColor Yellow
 Write-Host ""
 
 
-
-
 # Determine Domain Controller to Use
-if ($TargetDomainController -ne "") {
+if ($TargetDomainController){
     $dcToUse = $TargetDomainController
-    Write-Host "Using specified Domain Controller: $dcToUse" -ForegroundColor Yellow
-} else {
-    Write-Host "Discovering Domain Controller for $TargetDomain ..." -ForegroundColor Yellow
-    try {
+    Write-Host "Using Domain Controller: $dcToUse" -ForegroundColor Yellow
+}
+else {
+    Write-Host "Discovering Domain Controller in $TargetDomain ..." -ForegroundColor Yellow
+    try{
         $dcRecords = Resolve-DnsName -Name "_ldap._tcp.dc._msdcs.$TargetDomain" -Type SRV -ErrorAction Stop
-        $bestDC    = $dcRecords |
-                     Where-Object { $_.Type -eq "SRV" } |
-                     Sort-Object Priority, @{ Expression = "Weight"; Descending = $true } |
-                     Select-Object -First 1
-        $dcToUse   = $bestDC.NameTarget.TrimEnd('.')
-        Write-Host "Discovered DC: $dcToUse" -ForegroundColor Cyan
-    } catch {
+        #$dcToUse = $dcRecords[0].NameTarget.TrimEnd('.') # instead of this, using weight/priortization
+        # Sort by Priority (Ascending) then Weight (Descending)
+        $bestDC = $dcRecords | Sort-Object Priority, @{Expression="Weight"; Descending=$true} | Select-Object -First 1
+        $dcToUse = $bestDC.NameTarget.TrimEnd('.')
+        Write-Host "Found Domain Controller $dcToUse " -ForegroundColor Cyan
+    }
+    catch{
         $dcToUse = $TargetDomain
-        Write-Host "DC discovery failed. Falling back to domain name: $dcToUse" -ForegroundColor Red
+        Write-Host "Could not find Domain Controllers. Using domain name ($dcToUse) as LDAP endpoint." -ForegroundColor Red
     }
 }
+
 
 # Get Credentials for the domain user to test with
 Write-Host "Enter User Credentials" -ForegroundColor Yellow
 
 $username= Read-Host -Prompt "Username: "
-#$Credential = Get-Credential -Message "Enter Credentials" -Username "$TargetDomain\$username" 
+$Credential = Get-Credential -Message "Enter Credentials" -Username "$TargetDomain\$username" 
 
 
  
@@ -155,677 +179,1498 @@ $TimeStamp = Get-Date -Format 'yyyyMMdd_HHmmss'
 
 # LDAP Path
 $ldapPath = "LDAP://$dcToUse/$TargetDomainDN" # LDAP://192.168.1.10/DC=corp,DC=local
-#$plainPwd    = $Credential.GetNetworkCredential().Password
-$plainPwd = Read-Host -Prompt "Password: " -AsSecureString
 
+# Connect to AD using .NET 
+$plainPassword = $Credential.GetNetworkCredential().Password 
+$authType = [System.DirectoryServices.AuthenticationTypes]::Secure #Define Authentication Types (Secure + Signing).Using 'Secure' is the standard for Active Directory.
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-#  ROOT DIRECTORY ENTRY  (CLM-safe: [ADSI] accelerator, constructor overload
-#  with username/password uses the 3-argument form of the [ADSI] accelerator)
-# ─────────────────────────────────────────────────────────────────────────────
-#
-#  [ADSI]"LDAP://..." binds anonymously / as current user.
-#  To supply alternate credentials in CLM we instantiate via the underlying
-#  System.DirectoryServices.DirectoryEntry constructor that accepts (path,
-#  user, password) — but New-Object is blocked.
-#
-#  WORKAROUND:  PowerShell's [ADSI] accelerator IS New-Object under the hood,
-#  but the three-argument form is not exposed through the cast syntax.
-#  The only CLM-safe option that does NOT require New-Object is to use
-#  net use to authenticate a session first, then bind with [ADSI] as the
-#  current (now-authenticated) user context.
-#
-#  net use establishes an authenticated SMB/RPC session that LDAP can reuse.
-
-Write-Host ""
-Write-Host "Establishing authenticated session to $dcToUse ..." -ForegroundColor Yellow
-
-# Tear down any existing session to the DC first (ignore errors)
-$null = net use "\\$dcToUse\IPC$" /delete 2>$null
-
-$netUseResult = net use "\\$dcToUse\IPC$" /user:"$TargetDomain\$username" $plainPwd 2>&1
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "net use authentication failed: $netUseResult" -ForegroundColor Red
-    Write-Host "Attempting to continue with current user context..." -ForegroundColor Yellow
-}
-
-# Now [ADSI] will use the authenticated session token
-$rootEntry = [ADSI]$ldapPath
-
-# Validate the bind
+$directoryEntry = New-Object System.DirectoryServices.DirectoryEntry(
+    $ldapPath, 
+    $Credential.UserName, 
+    $plainPassword, 
+    $authType
+)
 
 <#
 try {
-    $testGuid = $rootEntry.Guid   # Forces actual LDAP bind
-    Write-Host "Connected to AD at $ldapPath" -ForegroundColor Cyan
-} catch {
-    Write-Host "LDAP bind failed: $($_.Exception.Message)" -ForegroundColor Red
-    # Clean up net use and exit
-    $null = net use "\\$dcToUse\IPC$" /delete 2>$null
-    return
+    $test = $directoryEntry.NativeGuid #NativeGuid is a unique ID that every object in Active Directory has, To get the NativeGuid, PowerShell is forced to actually perform the LDAP "Bind" (the login).
+    Write-Host "Success! Connected to AD as $($Credential.UserName)" -ForegroundColor Cyan
 }
+catch {
+    Write-Error "Authentication Failed: $($_.Exception.Message)" 
+}
+
 #>
 
-Write-Host "Session established as $TargetDomain\$username" -ForegroundColor Yellow
-Write-Host ""
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  HELPER: Convert Windows FileTime integer to readable date (CLM-safe)
-# ─────────────────────────────────────────────────────────────────────────────
-function ConvertFrom-FileTime {
-    param([long]$FileTime)
-    if ($FileTime -le 0) { return $null }
-    return [DateTime]::FromFileTime($FileTime)
-}
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  HELPER: Escape special LDAP filter characters in a DN string
-# ─────────────────────────────────────────────────────────────────────────────
-function Get-EscapedDN {
-    param([string]$DN)
-    return $DN.Replace("(", "\28").Replace(")", "\29").Replace("\", "\5C")
-}
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  HELPER: Build a DirectorySearcher from the root entry ([ADSISearcher])
-#
-#  CLM STRICT: ALL method calls on non-core types are blocked — this includes
-#  .PropertiesToLoad.Add(), .AddRange(), and .Clear().
-#
-#  SOLUTION: Do not restrict PropertiesToLoad at all. The searcher will return
-#  every attribute for each result. We pick the attributes we need in
-#  Get-AccountDetails using standard property access. This is slightly less
-#  efficient over the wire but is 100% CLM-safe and functionally identical.
-# ─────────────────────────────────────────────────────────────────────────────
-function New-Searcher {
-    param([string]$Filter)
+#$directoryEntry = New-Object System.DirectoryServices.DirectoryEntry($ldapPath, $Credential.Username, $Credential.GetNetworkCredential().Password)
+<#
+directoryEntry is the name of the "bucket" where the connection is stored.
+New-Object System.DirectoryServices.DirectoryEntry tells PowerShell to create a new instance of the DirectoryEntry class we discussed earlier. Think of this as opening a communication channel to the database.
+ldapPath tells the script exactly which object in the tree you want to talk to.
+#>
 
-    $searcher             = [ADSISearcher]$rootEntry
-    $searcher.Filter      = $Filter
-    $searcher.SearchScope = "Subtree"
-    $searcher.PageSize    = 1000
+Write-Host "Testing initiated using user $($Credential.Username) " -ForegroundColor Yellow
 
-    # PropertiesToLoad intentionally left unrestricted — CLM blocks all
-    # method calls (.Add/.AddRange/.Clear) on StringCollection (non-core type)
 
-    return $searcher
-}
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  HELPER: Fetch full account details for a given Distinguished Name
-# ─────────────────────────────────────────────────────────────────────────────
+# Helper function to get account details
+
 function Get-AccountDetails {
-    param([string]$MemberDN)
+    param(
+        [string]$MemberDN
+    )
 
-    $today       = Get-Date
-    $escapedDN   = Get-EscapedDN -DN $MemberDN
+    $today = Get-Date
+    $memberSearcher = New-Object System.DirectoryServices.DirectorySearcher($directoryEntry)
+    $escapedDN = $MemberDN.Replace("(", "\28").Replace(")", "\29") #This line is a translator that makes a Distinguished Name (DN) safe to use inside an LDAP search filter.
+    $memberSearcher.Filter = "(distinguishedName=$escapedDN)"
 
-    $searcher = New-Searcher -Filter "(distinguishedName=$escapedDN)"
+    
+    #$memberSearcher.Filter = "(distinguishedName=$MemberDN)"
+    $memberSearcher.PropertiesToLoad.AddRange(@(
+        "name",
+        "samaccountname",
+        "objectsid",
+        "whencreated",
+        "pwdlastset",
+        "lastlogontimestamp",
+        "useraccountcontrol",
+        "memberof",
+        "description",
+        "userprincipalname"
+    ))
 
-    $result = $searcher.FindOne()
-    if (-not $result) { return $null }
+    $memberResult = $memberSearcher.FindOne()
+    if (-not $memberResult) { return $null }
 
-    $props = $result.Properties
+    $props = $memberResult.Properties
 
-    # Password last set
-    $pwdRaw             = if ($props["pwdlastset"].Count -gt 0) { [long]$props["pwdlastset"][0] } else { 0 }
-    $passwordLastChanged = ConvertFrom-FileTime -FileTime $pwdRaw
+    # Parse pwdlastset
+    $pwdLastSetRaw = if ($props.pwdlastset) { $props.pwdlastset[0] } else { 0 }
+    $passwordLastChanged = if ($pwdLastSetRaw -gt 0) { [DateTime]::FromFileTime($pwdLastSetRaw) } else { $null }
 
-    # Last logon timestamp
-    $logonRaw  = if ($props["lastlogontimestamp"].Count -gt 0) { [long]$props["lastlogontimestamp"][0] } else { 0 }
-    $lastLogon = ConvertFrom-FileTime -FileTime $logonRaw
+    # Parse lastlogontimestamp
+    $lastLogonRaw = if ($props.lastlogontimestamp) { $props.lastlogontimestamp[0] } else { 0 }
+    $lastLogon = if ($lastLogonRaw -gt 0) { [DateTime]::FromFileTime($lastLogonRaw) } else { $null }
 
-    # UserAccountControl flags
-    $uac = if ($props["useraccountcontrol"].Count -gt 0) { [int]$props["useraccountcontrol"][0] } else { 0 }
+    # Parse useraccountcontrol
+    $uacValue = if ($props.useraccountcontrol) { $props.useraccountcontrol[0] } else { 0 }
 
-    # SID — CLM blocks ::new() on non-core types.
-    # Cast the raw byte array directly using the [SecurityIdentifier] accelerator
-    # with the two-argument overload: ([SecurityIdentifier]([byte[]]$bytes, [int]$offset))
-    # is NOT available as a cast. Instead we convert to hex string via ADSI's own
-    # sid-to-string representation exposed on the result entry itself.
-    # Safest CLM path: read objectSid as raw bytes, hex-encode, skip the
-    # SecurityIdentifier object entirely for the SID string display.
-    $sidString = ""
-    if ($props["objectsid"].Count -gt 0) {
-        $rawSid    = [byte[]]$props["objectsid"][0]
-        # Manually build S-1-X-Y-... from the raw SID byte structure (no type creation needed)
-        $revision  = $rawSid[0]
-        $subCount  = $rawSid[1]
-        $authority = [long]0
-        for ($i = 2; $i -le 7; $i++) { $authority = $authority * 256 + $rawSid[$i] }
-        $sidString = "S-$revision-$authority"
-        for ($i = 0; $i -lt $subCount; $i++) {
-            $offset = 8 + ($i * 4)
-            $sub    = [long]$rawSid[$offset] + ([long]$rawSid[$offset+1] -shl 8) + ([long]$rawSid[$offset+2] -shl 16) + ([long]$rawSid[$offset+3] -shl 24)
-            $sidString += "-$sub"
+    
+    # Clean up group names (removes the CN= and OU= parts)
+    $groups = if ($props.memberof) { 
+        $props.memberof | ForEach-Object { ($_ -split ',')[0].Replace("CN=", "") } 
+    } else { "Domain Users" }
+
+    return [PSCustomObject]@{
+        MemberName = if ($props.name) { $props.name[0] } else { $MemberDN }
+        SamAccountName = if ($props.samaccountname) { $props.samaccountname[0] } else { "" }
+        #SID = if ($props.objectsid) { ($props.objectsid[0], 0).Value } else { "" }
+        SID = if ($props.objectsid) { (New-Object System.Security.Principal.SecurityIdentifier($props.objectsid[0], 0)).Value } else { "" }
+        AccountCreated = if ($props.whencreated) { ([DateTime]$props.whencreated[0]).ToString("yyyy-MM-dd") } else { "Unknown" }
+        PasswordLastChanged = if ($passwordLastChanged) { $passwordLastChanged.ToString("yyyy-MM-dd") } else { "Never Set" }
+        DaysSincePwdChange  = if ($passwordLastChanged) { [int]($today - $passwordLastChanged).TotalDays } else { "Never Set" }
+        LastLogon = if ($lastLogon) { $lastLogon.ToString("yyyy-MM-dd") } else { "Never" }
+        AccountStatus = if ($uacValue -band 2) { "Disabled" } else { "Enabled" }
+        Groups = ($groups -join "; ")
+        Comment = if ($props.description) { $props.description[0] } else { "" }
+        UserPrincipalName = if ($props.userprincipalname -and $props.userprincipalname.Count -gt 0) { $props.userprincipalname[0] } else { "" }
+    }
+}
+
+
+
+
+function Export-HTMLReport {
+    param(
+        [object[]]$AllSections,   # array of hashtables: @{Title=...; Module=...; Columns=...; Data=...}
+        [string]$OutputFile
+    )
+
+    # Build summary counts
+    $summaryRows = ""
+    $sectionBlocks = ""
+
+    foreach ($section in $AllSections) {
+        $count = if ($section.Data) { $section.Data.Count } else { 0 }
+        $badgeClass = if ($count -gt 0) { "badge-warn" } else { "badge-ok" }
+        $summaryRows += @"
+        <tr>
+            <td><span class="module-tag">$($section.Module)</span></td>
+            <td>$($section.Title)</td>
+            <td><span class="badge $badgeClass">$count</span></td>
+        </tr>
+"@
+
+        # Build table for this section
+        if ($section.Data -and $section.Data.Count -gt 0) {
+            $headers = ""
+            foreach ($col in $section.Columns) {
+                $headers += "<th>$col</th>"
+            }
+
+            $rows = ""
+            foreach ($row in $section.Data) {
+                $cells = ""
+                foreach ($col in $section.Columns) {
+                    $val = $row.$col
+                    if ($null -eq $val) { $val = "" }
+
+                    # Style certain cell values
+                    if ($col -eq "AccountStatus") {
+                        if ($val -eq "Enabled") {
+                            $cells += "<td><span class='status-enabled'>$val</span></td>"
+                        } else {
+                            $cells += "<td><span class='status-disabled'>$val</span></td>"
+                        }
+                    } elseif ($col -like "DaysSince*") {
+                        $numVal = 0
+                        if ([int]::TryParse($val, [ref]$numVal)) {
+                            if ($numVal -gt 180) {
+                                $cells += "<td class='cell-danger'>$val</td>"
+                            } elseif ($numVal -gt 90) {
+                                $cells += "<td class='cell-warn'>$val</td>"
+                            } else {
+                                $cells += "<td>$val</td>"
+                            }
+                        } else {
+                            $cells += "<td>$val</td>"
+                        }
+                    } elseif ($col -eq "IsInherited") {
+                        if ($val -eq $true -or $val -eq "True") {
+                            $cells += "<td><span class='inherited'>Inherited</span></td>"
+                        } else {
+                            $cells += "<td><span class='explicit'>Explicit</span></td>"
+                        }
+                    } else {
+                        $cells += "<td>$val</td>"
+                    }
+                }
+                $rows += "<tr>$cells</tr>"
+            }
+
+            $sectionBlocks += @"
+    <section class="report-section" id="$($section.Module)">
+        <div class="section-header">
+            <span class="section-module">$($section.Module)</span>
+            <h2 class="section-title">$($section.Title)</h2>
+            <span class="section-count">$count finding(s)</span>
+        </div>
+        <div class="table-wrap">
+            <table>
+                <thead><tr>$headers</tr></thead>
+                <tbody>$rows</tbody>
+            </table>
+        </div>
+    </section>
+"@
+        } else {
+            $sectionBlocks += @"
+    <section class="report-section" id="$($section.Module)">
+        <div class="section-header">
+            <span class="section-module">$($section.Module)</span>
+            <h2 class="section-title">$($section.Title)</h2>
+            <span class="section-count">0 findings</span>
+        </div>
+        <div class="empty-state">
+            <div class="empty-icon">&#10003;</div>
+            <p>No issues found in this category.</p>
+        </div>
+    </section>
+"@
         }
     }
 
-    # Groups (strip CN= prefix)
-    $groups = if ($props["memberof"].Count -gt 0) {
-        @($props["memberof"]) | ForEach-Object { ($_ -split ",")[0] -replace "^CN=", "" }
-    } else {
-        @("Domain Users")
+    $totalFindings = 0
+    foreach ($section in $AllSections) {
+        if ($section.Data) { $totalFindings += $section.Data.Count }
     }
 
-    # CLM blocks [PSCustomObject]@{} — use Select-Object on a single dummy object instead.
-    # Select-Object -Property with calculated properties produces a standard object
-    # from any pipeline input; "" | Select-Object ... is the canonical CLM workaround.
-    $r_MemberName          = if ($props["name"].Count -gt 0)              { [string]$props["name"][0] }              else { $MemberDN }
-    $r_SamAccountName      = if ($props["samaccountname"].Count -gt 0)    { [string]$props["samaccountname"][0] }    else { "" }
-    $r_SID                 = $sidString
-    $r_AccountCreated      = if ($props["whencreated"].Count -gt 0)       { ([DateTime]$props["whencreated"][0]).ToString("yyyy-MM-dd") } else { "Unknown" }
-    $r_PasswordLastChanged = if ($passwordLastChanged)                     { $passwordLastChanged.ToString("yyyy-MM-dd") } else { "Never Set" }
-    $r_DaysSincePwdChange  = if ($passwordLastChanged)                     { [string][int]($today - $passwordLastChanged).TotalDays } else { "N/A" }
-    $r_LastLogon           = if ($lastLogon)                               { $lastLogon.ToString("yyyy-MM-dd") }     else { "Never" }
-    $r_DaysSinceLogon      = if ($lastLogon)                               { [string][int]($today - $lastLogon).TotalDays } else { "N/A" }
-    $r_AccountStatus       = if ($uac -band 2)                             { "Disabled" }                            else { "Enabled" }
-    $r_Groups              = $groups -join "; "
-    $r_Description         = if ($props["description"].Count -gt 0)       { [string]$props["description"][0] }       else { "" }
-    $r_UserPrincipalName   = if ($props["userprincipalname"].Count -gt 0)  { [string]$props["userprincipalname"][0] } else { "" }
+    $html = @"
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>AD Audit Report — $TargetDomain</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Syne:wght@400;600;700;800&display=swap');
 
-    return "" | Select-Object `
-        @{N="MemberName";E={$r_MemberName}},
-        @{N="SamAccountName";E={$r_SamAccountName}},
-        @{N="SID";E={$r_SID}},
-        @{N="AccountCreated";E={$r_AccountCreated}},
-        @{N="PasswordLastChanged";E={$r_PasswordLastChanged}},
-        @{N="DaysSincePwdChange";E={$r_DaysSincePwdChange}},
-        @{N="LastLogon";E={$r_LastLogon}},
-        @{N="DaysSinceLogon";E={$r_DaysSinceLogon}},
-        @{N="AccountStatus";E={$r_AccountStatus}},
-        @{N="Groups";E={$r_Groups}},
-        @{N="Description";E={$r_Description}},
-        @{N="UserPrincipalName";E={$r_UserPrincipalName}}
+  :root {
+    --bg:        #09090f;
+    --bg2:       #0f0f1a;
+    --bg3:       #141424;
+    --border:    #1e1e3a;
+    --accent:    #00e5ff;
+    --accent2:   #7c3aed;
+    --warn:      #f59e0b;
+    --danger:    #ef4444;
+    --ok:        #10b981;
+    --text:      #e2e8f0;
+    --muted:     #64748b;
+    --mono:      'Share Tech Mono', monospace;
+    --sans:      'Syne', sans-serif;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 14px;
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+
+  /* ── GRID LINES BACKGROUND ── */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(0,229,255,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,229,255,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* ── HEADER ── */
+  .site-header {
+    position: relative;
+    z-index: 1;
+    padding: 48px 48px 32px;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, rgba(0,229,255,0.04) 0%, transparent 100%);
+  }
+
+  .header-eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--accent);
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    margin-bottom: 12px;
+  }
+
+  .header-eyebrow::before {
+    content: '> ';
+    opacity: 0.5;
+  }
+
+  .site-header h1 {
+    font-size: clamp(28px, 4vw, 48px);
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+    background: linear-gradient(135deg, #fff 0%, var(--accent) 60%, var(--accent2) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .header-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 24px;
+    margin-top: 20px;
+  }
+
+  .meta-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .meta-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  .meta-value {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--accent);
+  }
+
+  /* ── TOTAL FINDINGS HERO ── */
+  .findings-hero {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    gap: 32px;
+    padding: 32px 48px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .findings-number {
+    font-size: 72px;
+    font-weight: 800;
+    font-family: var(--mono);
+    color: var(--warn);
+    line-height: 1;
+    text-shadow: 0 0 40px rgba(245,158,11,0.3);
+  }
+
+  .findings-number.safe {
+    color: var(--ok);
+    text-shadow: 0 0 40px rgba(16,185,129,0.3);
+  }
+
+  .findings-label {
+    font-size: 13px;
+    color: var(--muted);
+    font-family: var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+
+  .findings-divider {
+    width: 1px;
+    height: 60px;
+    background: var(--border);
+  }
+
+  /* ── SUMMARY TABLE ── */
+  .summary-block {
+    position: relative;
+    z-index: 1;
+    padding: 32px 48px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .block-title {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    margin-bottom: 16px;
+  }
+
+  .summary-table {
+    width: 100%;
+    border-collapse: collapse;
+    max-width: 640px;
+  }
+
+  .summary-table td {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+  }
+
+  .summary-table tr:last-child td { border-bottom: none; }
+
+  .module-tag {
+    font-family: var(--mono);
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 3px;
+    background: rgba(0,229,255,0.1);
+    color: var(--accent);
+    border: 1px solid rgba(0,229,255,0.2);
+    letter-spacing: 0.05em;
+  }
+
+  .badge {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 700;
+    padding: 2px 10px;
+    border-radius: 20px;
+  }
+
+  .badge-warn {
+    background: rgba(245,158,11,0.15);
+    color: var(--warn);
+    border: 1px solid rgba(245,158,11,0.3);
+  }
+
+  .badge-ok {
+    background: rgba(16,185,129,0.1);
+    color: var(--ok);
+    border: 1px solid rgba(16,185,129,0.2);
+  }
+
+  /* ── MAIN CONTENT ── */
+  .content {
+    position: relative;
+    z-index: 1;
+    padding: 32px 48px;
+    display: flex;
+    flex-direction: column;
+    gap: 32px;
+  }
+
+  /* ── SECTION ── */
+  .report-section {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--bg2);
+    transition: border-color 0.2s;
+  }
+
+  .report-section:hover {
+    border-color: rgba(0,229,255,0.2);
+  }
+
+  .section-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 16px 20px;
+    background: var(--bg3);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .section-module {
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 3px;
+    background: rgba(124,58,237,0.15);
+    color: #a78bfa;
+    border: 1px solid rgba(124,58,237,0.25);
+    flex-shrink: 0;
+  }
+
+  .section-title {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text);
+    flex: 1;
+  }
+
+  .section-count {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    flex-shrink: 0;
+  }
+
+  /* ── TABLE ── */
+  .table-wrap {
+    overflow-x: auto;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+
+  thead tr {
+    background: rgba(0,0,0,0.3);
+  }
+
+  thead th {
+    padding: 10px 16px;
+    text-align: left;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-weight: 400;
+    white-space: nowrap;
+    border-bottom: 1px solid var(--border);
+  }
+
+  tbody tr {
+    border-bottom: 1px solid rgba(30,30,58,0.6);
+    transition: background 0.15s;
+  }
+
+  tbody tr:last-child { border-bottom: none; }
+
+  tbody tr:hover {
+    background: rgba(0,229,255,0.03);
+  }
+
+  tbody td {
+    padding: 10px 16px;
+    vertical-align: middle;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: #cbd5e1;
+    white-space: nowrap;
+  }
+
+  /* ── STATUS BADGES ── */
+  .status-enabled {
+    display: inline-block;
+    padding: 1px 8px;
+    border-radius: 3px;
+    background: rgba(16,185,129,0.1);
+    color: var(--ok);
+    border: 1px solid rgba(16,185,129,0.25);
+    font-size: 11px;
+  }
+
+  .status-disabled {
+    display: inline-block;
+    padding: 1px 8px;
+    border-radius: 3px;
+    background: rgba(100,116,139,0.1);
+    color: var(--muted);
+    border: 1px solid rgba(100,116,139,0.25);
+    font-size: 11px;
+  }
+
+  .inherited {
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  .explicit {
+    font-size: 11px;
+    color: var(--warn);
+    font-weight: 700;
+  }
+
+  /* ── CELL SEVERITY COLOURS ── */
+  .cell-warn { color: var(--warn) !important; }
+  .cell-danger { color: var(--danger) !important; }
+
+  /* ── EMPTY STATE ── */
+  .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 40px 20px;
+    gap: 8px;
+  }
+
+  .empty-icon {
+    font-size: 28px;
+    color: var(--ok);
+  }
+
+  .empty-state p {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  /* ── FOOTER ── */
+  footer {
+    position: relative;
+    z-index: 1;
+    text-align: center;
+    padding: 24px;
+    border-top: 1px solid var(--border);
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.05em;
+  }
+
+  footer span { color: var(--accent); }
+
+  @media print {
+    body::before { display: none; }
+    .report-section { break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+
+<header class="site-header">
+  <div class="header-eyebrow">Active Directory Audit Report</div>
+  <h1>$TargetDomain</h1>
+  <div class="header-meta">
+    <div class="meta-item">
+      <span class="meta-label">Domain Controller</span>
+      <span class="meta-value">$dcToUse</span>
+    </div>
+    <div class="meta-item">
+      <span class="meta-label">Audited By</span>
+      <span class="meta-value">$TargetDomain\$username</span>
+    </div>
+    <div class="meta-item">
+      <span class="meta-label">Generated</span>
+      <span class="meta-value">$ReportGeneratedAt</span>
+    </div>
+    <div class="meta-item">
+      <span class="meta-label">Tool</span>
+      <span class="meta-value">ADAudit v1.0</span>
+    </div>
+  </div>
+</header>
+
+<div class="findings-hero">
+  <div>
+    <div class="findings-number$(if ($totalFindings -eq 0) { ' safe' } else { '' })">$totalFindings</div>
+    <div class="findings-label">Total Findings</div>
+  </div>
+  <div class="findings-divider"></div>
+  <div>
+    <div class="findings-label">Scope: $TargetAudit</div>
+  </div>
+</div>
+
+<div class="summary-block">
+  <div class="block-title">// Module Summary</div>
+  <table class="summary-table">
+    <tbody>
+$summaryRows
+    </tbody>
+  </table>
+</div>
+
+<main class="content">
+$sectionBlocks
+</main>
+
+<footer>
+  Generated by <span>ADAudit</span> &nbsp;|&nbsp; $ReportGeneratedAt &nbsp;|&nbsp; Domain: <span>$TargetDomain</span>
+</footer>
+
+</body>
+</html>
+"@
+
+    $html | Out-File -FilePath $OutputFile -Encoding UTF8
+    Write-Host "HTML report saved to: $OutputFile" -ForegroundColor Cyan
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  HELPER: Export results to CSV and optionally display them
-# ─────────────────────────────────────────────────────────────────────────────
+
+
+# Accumulator for HTML sections (used when running "all")
+$Script:HTMLSections = @()
+
 function Export-Results {
     param(
         [object[]]$Results,
         [string]  $FileName,
+        [string]  $SectionTitle,
+        [string]  $ModuleTag,
         [string[]]$DisplayColumns,
         [string]  $EmptyMessage
     )
 
-    $outputFile = Join-Path $OutputPath "${FileName}_${TargetDomain}_${TimeStamp}.csv"
-
     Write-Host "Found $($Results.Count) result(s)" -ForegroundColor Yellow
 
     if ($Results.Count -gt 0) {
-        $Results | Format-Table $DisplayColumns -AutoSize
-        $Results | Export-Csv -Path $outputFile -NoTypeInformation -Encoding UTF8
-        Write-Host "Exported to: $outputFile" -ForegroundColor Cyan
+        if ($ScreenOnly) {
+            # Screen-only: show full detail with Format-List, one record at a time
+            $i = 0
+            foreach ($row in $Results) {
+                $i++
+                Write-Host "--- [$i / $($Results.Count)] ---" -ForegroundColor DarkCyan
+                $row | Select-Object $DisplayColumns | Format-List
+            }
+        } else {
+            $Results | Format-Table $DisplayColumns -AutoSize
+        }
     } else {
         Write-Host $EmptyMessage -ForegroundColor Yellow
     }
+
+    # CSV export
+    if ($ExportCSV -and $Results.Count -gt 0) {
+        $csvFile = Join-Path $OutputPath "${FileName}_${TargetDomain}_${TimeStamp}.csv"
+        $Results | Export-Csv -Path $csvFile -NoTypeInformation -Encoding UTF8
+        Write-Host "CSV exported to: $csvFile" -ForegroundColor Cyan
+    }
+
+    # Accumulate for HTML
+    if ($ExportHTML) {
+        $Script:HTMLSections += @{
+            Title   = $SectionTitle
+            Module  = $ModuleTag
+            Columns = $DisplayColumns
+            Data    = $Results
+        }
+    }
+    <#
+    if ($ExportHTML -and $Script:HTMLSections.Count -gt 0) {
+        Write-Host ""
+        Write-Host "Generating HTML report..." -ForegroundColor Yellow
+        $htmlFile = Join-Path $OutputPath "ADReport_${TargetDomain}_${TimeStamp}.html"
+        Export-HTMLReport -AllSections $Script:HTMLSections -OutputFile $htmlFile
+    }
+    #>
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  A1 — ADMINISTRATOR ACCOUNTS
-# ─────────────────────────────────────────────────────────────────────────────
-function Invoke-AdminAudit {
-    Write-Host ""
-    Write-Host "=================== A1: Admin Accounts ===================" -ForegroundColor Green
 
+### Accounts with Admin Accounts ###
+function Admins{
+    Write-Host ""
+    Write-Host "===================Auditing Admin Accounts===================" -ForegroundColor Green
+
+    
+    # Privileged Groups
     $PrivilegedGroups = @(
         "Domain Admins",
         "Enterprise Admins",
         "Administrators",
         "Schema Admins"
-    )
+        )
 
     $results = @()
+    foreach ($GroupName in $PrivilegedGroups){
+        $Searcher = New-Object System.DirectoryServices.DirectorySearcher($directoryEntry)
+        $Searcher.Filter = "(&(ObjectCategory=group)(name=$GroupName))"
+        $Searcher.PropertiesToLoad.AddRange(@("member","name"))
+        $group = $Searcher.FindOne()
+        if ($group){
+            $members = $group.Properties.member
+            foreach ($memberDN in $members){
+                $account = Get-AccountDetails -MemberDN $memberDN 
+                if ($account) {
+                    $results += [PSCustomObject]@{
+                        Group = $GroupName
+                        MemberName = $account.MemberName
+                        SamAccountName = $account.SamAccountName
+                        #SID = $account.SID
+                        AccountCreated = $account.AccountCreated
+                        PasswordLastChanged = $account.PasswordLastChanged
+                        DaysSincePwdChange  = $account.DaysSincePwdChange
+                        LastLogon = $account.LastLogon
+                        AccountStatus = $account.AccountStatus
+                    }
+                }
 
-    foreach ($GroupName in $PrivilegedGroups) {
-        $searcher = New-Searcher -Filter "(&(objectCategory=group)(name=$GroupName))"
-
-        $group = $searcher.FindOne()
-        if (-not $group) { continue }
-
-        foreach ($memberDN in $group.Properties["member"]) {
-            $account = Get-AccountDetails -MemberDN $memberDN
-            if ($account) {
-                $g = $GroupName; $a = $account
-                $results += "" | Select-Object @{N="Group";E={$g}},@{N="MemberName";E={$a.MemberName}},@{N="SamAccountName";E={$a.SamAccountName}},@{N="AccountStatus";E={$a.AccountStatus}},@{N="PasswordLastChanged";E={$a.PasswordLastChanged}},@{N="DaysSincePwdChange";E={$a.DaysSincePwdChange}},@{N="LastLogon";E={$a.LastLogon}},@{N="AccountCreated";E={$a.AccountCreated}}
             }
+
         }
     }
 
     Export-Results `
-        -Results $results `
-        -FileName "admin_accounts" `
-        -DisplayColumns @("Group","MemberName","SamAccountName","AccountStatus","PasswordLastChanged","DaysSincePwdChange","LastLogon") `
-        -EmptyMessage "No admin accounts found."
+        -Results        $results `
+        -FileName       "admin_accounts" `
+        -SectionTitle   "Administrator Accounts" `
+        -ModuleTag      "A1" `
+        -DisplayColumns @("Group","MemberName","SamAccountName","AccountStatus","PasswordLastChanged","DaysSincePwdChange","LastLogon","AccountCreated") `
+        -EmptyMessage   "No admin accounts found."
 
+
+
+    <#
+    
+    # Output file
+    $OutputFile = Join-Path $OutputPath "admin_accounts_$TargetDomain`_$TimeStamp.csv"
+
+    Write-Host "Found $($results.Count) admin accounts" -ForegroundColor Yellow
+
+    if ($results.Count -gt 0){
+        $results | Format-Table Group, MemberName, SamAccountName, AccountStatus, PasswordLastChanged, DaysSincePwdChange, AccountCreated -AutoSize
+        $results | Export-Csv -Path $OutputFile -NoTypeInformation
+        Write-Host "Results exported to: $OutputFile" -ForegroundColor Cyan
+    }
+    else {
+        Write-Host "No admin accounts found."
+    }
+
+    #>
     return $results
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  A2 — DCSYNC PRIVILEGES
-#  CLM NOTE: ObjectSecurity / GetAccessRules is accessible via [ADSI] entry's
-#  .psbase.ObjectSecurity.GetAccessRules() — this is exposed as a .NET method
-#  call on an already-retrieved object, which CLM allows.
-# ─────────────────────────────────────────────────────────────────────────────
-function Invoke-DCSyncAudit {
-    Write-Host ""
-    Write-Host "=================== A2: DCSync Privileges ===================" -ForegroundColor Green
 
+### Accounts with DCSync Privileges ###
+function DCSync{
+
+
+
+    Write-Host ""
+    Write-Host "=================== Auditing Acounts with DCSync Privileges ===================" -ForegroundColor Green
+
+    # GUIDs for DCSync Rights
     $DCSyncGuids = @(
-        "1131f6aa-9c07-11d1-f79f-00c04fc2dcd2",   # DS-Replication-Get-Changes
-        "1131f6ad-9c07-11d1-f79f-00c04fc2dcd2"    # DS-Replication-Get-Changes-All
+        "1131f6aa-9c07-11d1-f79f-00c04fc2dcd2", # DS-Replication-Get-Changes
+        "1131f6ad-9c07-11d1-f79f-00c04fc2dcd2"  # DS-Replication-Get-Changes-All
     )
 
     $results = @()
 
     try {
-        # Bind directly to the domain root object to read its DACL
-        $domainEntry = [ADSI]$ldapPath
 
-        # psbase.ObjectSecurity is the safe CLM way to get the security descriptor
-        $acl   = $domainEntry.psbase.ObjectSecurity
-        # GetAccessRules requires a target type argument. In CLM [NTAccount] as a method
-        # parameter is blocked. Use [System.Security.Principal.IdentityReference] which
-        # IS a core-recognised type in CLM, then read .Value as a string for DOMAIN\name.
-        $rules = $acl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier])
+        $searcher = New-Object System.DirectoryServices.DirectorySearcher($directoryEntry)
+        $searcher.Filter = "(objectClass=domain)"
+        $searcher.SecurityMasks = [System.DirectoryServices.SecurityMasks]::Dacl
+        $searcher.PropertiesToLoad.Add("ntSecurityDescriptor")
+
+        $domainResult = $searcher.FindOne()
+        
+        $sec = $domainResult.GetDirectoryEntry().ObjectSecurity
+        
+        # Get all Access Rules (ACEs)
+        $rules = $sec.GetAccessRules($true, $true, [System.Security.Principal.NTAccount])
 
         foreach ($rule in $rules) {
-            if ($rule.AccessControlType -ne "Allow") { continue }
-            if ($DCSyncGuids -notcontains $rule.ObjectType.ToString()) { continue }
+            # Check if the rule is "Allow" and matches one of our DCSync GUIDs
+            if ($rule.AccessControlType -eq "Allow" -and $DCSyncGuids -contains $rule.ObjectType.ToString()) {
+                
+                # Check for the specific permission name (or ID)
+                $rightType = if ($rule.ObjectType.ToString() -eq "1131f6aa-9c07-11d1-f79f-00c04fc2dcd2") { 
+                    "Get-Changes" 
+                } else { 
+                    "Get-Changes-All" 
+                }
+  
+                
+                $identityValue = $rule.IdentityReference.Value # $rule.IdentityReference.Value gives "DOMAIN\username" format
+                $samName = $identityValue -replace '^.*\\', ''  # removes everything up to and including the backslash, Strip the domain prefix to get just the samAccountName for searching
 
-            $rightName = if ($rule.ObjectType.ToString() -eq "1131f6aa-9c07-11d1-f79f-00c04fc2dcd2") {
-                "DS-Replication-Get-Changes"
-            } else {
-                "DS-Replication-Get-Changes-All"
+
+                $resolvesearcher = New-Object System.DirectoryServices.DirectorySearcher($directoryEntry)
+                $resolvesearcher.Filter = "(samAccountName=$samName)"
+                $resolvesearcher.PropertiesToLoad.Add("distinguishedName") 
+                $resolvesearcher.PropertiesToLoad.AddRange(@("member","name"))
+                $resolved = $resolvesearcher.FindOne()
+                
+                #$account = $null
+                if ($resolved) {
+                    $dn = $resolved.Properties.distinguishedname[0]
+                    $account = Get-AccountDetails -MemberDN $dn
+                }
+
+                $results += [PSCustomObject]@{
+                    Identity = $rule.IdentityReference.Value
+                    Right = $rightType
+                    IsInherited = $rule.IsInherited
+                    Inheritance = $rule.InheritanceFlags
+                    Group = $GroupName
+                    MemberName = $account.MemberName
+                    SamAccountName = $account.SamAccountName
+                    #SID = $account.SID
+                    AccountCreated = $account.AccountCreated
+                    PasswordLastChanged = $account.PasswordLastChanged
+                    DaysSincePwdChange  = $account.DaysSincePwdChange
+                    LastLogon = $account.LastLogon
+                    AccountStatus = $account.AccountStatus
+
+                }
             }
-
-            $sidValue  = $rule.IdentityReference.Value   # now a SID string e.g. S-1-5-21-...-500
-            # Resolve SID to samAccountName via LDAP objectSid search
-            # Build hex bytes from SID string (same logic as R2)
-            $sidParts  = $sidValue -split "-"
-            $sidRev    = [int]$sidParts[1]
-            $sidAuth   = [long]$sidParts[2]
-            $sidSubs   = @(); for ($si=3;$si -lt $sidParts.Count;$si++){$sidSubs += [long]$sidParts[$si]}
-            $sb = @([byte]$sidRev,[byte]$sidSubs.Count)
-            $sb += [byte](($sidAuth -shr 40)-band 0xFF),[byte](($sidAuth -shr 32)-band 0xFF),[byte](($sidAuth -shr 24)-band 0xFF),[byte](($sidAuth -shr 16)-band 0xFF),[byte](($sidAuth -shr 8)-band 0xFF),[byte]($sidAuth -band 0xFF)
-            foreach ($ss in $sidSubs){$sb += [byte]($ss -band 0xFF),[byte](($ss -shr 8)-band 0xFF),[byte](($ss -shr 16)-band 0xFF),[byte](($ss -shr 24)-band 0xFF)}
-            $hexSidAcl = "\" + ($sb | ForEach-Object { $_.ToString("X2") }) -join "\"
-
-            $idSearcher = New-Searcher -Filter "(&(objectClass=*)(objectSid=$hexSidAcl))"
-            $resolved   = $idSearcher.FindOne()
-            $account    = $null
-            $samName    = $sidValue   # fallback display value
-
-            if ($resolved -and $resolved.Properties["samaccountname"].Count -gt 0) {
-                $samName = [string]$resolved.Properties["samaccountname"][0]
-            }
-            if ($resolved -and $resolved.Properties["distinguishedname"].Count -gt 0) {
-                $dn      = [string]$resolved.Properties["distinguishedname"][0]
-                $account = Get-AccountDetails -MemberDN $dn
-            }
-            $identityValue = $samName
-
-            $iv=$identityValue; $rn=$rightName; $ih=$rule.IsInherited; $a=$account; $sn=$samName
-            $results += "" | Select-Object @{N="Identity";E={$iv}},@{N="Right";E={$rn}},@{N="IsInherited";E={$ih}},@{N="MemberName";E={if($a){$a.MemberName}else{$sn}}},@{N="SamAccountName";E={if($a){$a.SamAccountName}else{$sn}}},@{N="AccountStatus";E={if($a){$a.AccountStatus}else{"Unknown"}}},@{N="PasswordLastChanged";E={if($a){$a.PasswordLastChanged}else{"Unknown"}}},@{N="DaysSincePwdChange";E={if($a){$a.DaysSincePwdChange}else{"N/A"}}},@{N="LastLogon";E={if($a){$a.LastLogon}else{"Unknown"}}},@{N="AccountCreated";E={if($a){$a.AccountCreated}else{"Unknown"}}}
         }
-    } catch {
-        Write-Host "Failed to read domain DACL: $($_.Exception.Message)" -ForegroundColor Red
+    }
+    catch {
+        Write-Error "Failed to read Security Descriptor: $($_.Exception.Message)"
     }
 
-    Export-Results `
-        -Results $results `
-        -FileName "dcsync_privileges" `
-        -DisplayColumns @("Identity","Right","IsInherited","MemberName","AccountStatus","PasswordLastChanged","DaysSincePwdChange","LastLogon") `
-        -EmptyMessage "No DCSync rights found."
 
+    Export-Results `
+        -Results        $results `
+        -FileName       "accounts_with_dcsync_privileges" `
+        -SectionTitle   "Accounts with DCSync Privileges" `
+        -ModuleTag      "A2" `
+        -DisplayColumns @("Identity","Right","IsInherited","MemberName","SamAccountName","AccountStatus","PasswordLastChanged","DaysSincePwdChange","LastLogon","AccountCreated") `
+        -EmptyMessage   "No account DCSync rights found."
+    
+    <#
+    # Output file
+    $OutputFile = Join-Path $OutputPath "accounts_with_dcsync_privileges_$TargetDomain`_$TimeStamp.csv"
+
+    Write-Host "Found $($results.Count) accounts with DCSync-related rights" -ForegroundColor Yellow
+
+    if ($results.Count -gt 0) {
+        
+        $results | Format-Table Identity, Right, MemberName, SamAccountName, AccountStatus, PasswordLastChanged, DaysSinceChange, AccountCreated, LastLogon -AutoSize
+        $results | Export-Csv -Path $OutputFile -NoTypeInformation
+        Write-Host "Full audit exported to: $OutputFile" -ForegroundColor Cyan
+    } else {
+        Write-Host "No account DCSync rights found" -ForegroundColor Yellow
+    }
+    #>
     return $results
+    #Write-Host "Found $($results.Count) accounts with dcsync privileges" -ForegroundColor Yellow
+    # Output file
+
+    
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  A3 — SERVICE ACCOUNTS (Password Never Expires)
-# ─────────────────────────────────────────────────────────────────────────────
-function Invoke-ServiceAccountAudit {
+
+function ServiceAccounts{
     Write-Host ""
-    Write-Host "=================== A3: Service Accounts (No Password Expiry) ===================" -ForegroundColor Green
-    Write-Host "Definition: any enabled user account with the 'Password Never Expires' flag set." -ForegroundColor Yellow
-
-    # UAC bit 65536 (0x10000) = DONT_EXPIRE_PASSWORD
-    $searcher = New-Searcher -Filter "(&(objectClass=user)(objectCategory=person)(userAccountControl:1.2.840.113556.1.4.803:=65536)(!userAccountControl:1.2.840.113556.1.4.803:=2))"
-
-    $accounts = $searcher.FindAll()
-    Write-Host "LDAP query returned $($accounts.Count) entries." -ForegroundColor Yellow
+    Write-Host "===================Auditing Service Accounts===================" -ForegroundColor Green
+    Write-Host "P.S. For this tool, a service account is defined as any account with no password expiry." -ForegroundColor Yellow
 
     $results = @()
-    foreach ($result in $accounts) {
-        $dn      = $result.Properties["distinguishedname"][0]
+
+    $Searcher = New-Object System.DirectoryServices.DirectorySearcher($directoryEntry)
+    $Searcher.Filter = "(&(ObjectClass=user)(userAccountControl:1.2.840.113556.1.4.803:=65536))"  # 1.2.840.113556.1.4.803 is a specialized "Bitwise AND" rule. 65536 is the decimal value for the "Password Never Expires" fla
+    $Searcher.SearchScope = [System.DirectoryServices.SearchScope]::Subtree
+    $Searcher.PropertiesToLoad.AddRange(@("distinguishedName", "name"))
+    $accounts = $Searcher.FindAll()
+    Write-Host "Searching from: $($testSearcher.SearchRoot.Path)" -ForegroundColor Magenta
+
+
+    foreach($result in $accounts){
+        $dn = $result.Properties.distinguishedname[0]
         $account = Get-AccountDetails -MemberDN $dn
-        if ($account) {
-            $a = $account
-            $results += "" | Select-Object @{N="MemberName";E={$a.MemberName}},@{N="SamAccountName";E={$a.SamAccountName}},@{N="AccountStatus";E={$a.AccountStatus}},@{N="PasswordLastChanged";E={$a.PasswordLastChanged}},@{N="DaysSincePwdChange";E={$a.DaysSincePwdChange}},@{N="LastLogon";E={$a.LastLogon}},@{N="AccountCreated";E={$a.AccountCreated}},@{N="Groups";E={$a.Groups}}
-        }
+            if ($account) {
+                $results += [PSCustomObject]@{
+                MemberName = $account.MemberName
+                SamAccountName = $account.SamAccountName
+                #SID = $account.objectsid
+                AccountCreated = $account.AccountCreated
+                PasswordLastChanged = $account.PasswordLastChanged
+                DaysSincePwdChange  = $account.DaysSincePwdChange
+                LastLogon = $account.LastLogon
+                AccountStatus = $account.AccountStatus
+                }
+            }
+      
     }
+    
 
     Export-Results `
-        -Results $results `
-        -FileName "service_accounts" `
-        -DisplayColumns @("MemberName","SamAccountName","AccountStatus","PasswordLastChanged","DaysSincePwdChange","LastLogon") `
-        -EmptyMessage "No service accounts (no-expiry) found."
+        -Results        $results `
+        -FileName       "service_accounts" `
+        -SectionTitle   "Service Accounts (Password Never Expires)" `
+        -ModuleTag      "A3" `
+        -DisplayColumns @("MemberName","SamAccountName","AccountStatus","PasswordLastChanged","DaysSincePwdChange","LastLogon","AccountCreated") `
+        -EmptyMessage   "No service accounts found."
 
+
+    <#
+    # Output file
+    $OutputFile = Join-Path $OutputPath "service_accounts_$TargetDomain`_$TimeStamp.csv"
+
+    Write-Host "Found $($results.Count) service accounts" -ForegroundColor Yellow
+
+    if ($results.Count -gt 0){
+        $results | Format-Table MemberName, SamAccountName, AccountStatus, PasswordLastChanged, DaysSincePwdChange, AccountCreated -AutoSize
+        $results | Export-Csv -Path $OutputFile -NoTypeInformation
+        Write-Host "Results exported to: $OutputFile" -ForegroundColor Cyan
+    }
+    else {
+        Write-Host "No service accounts found."
+    }
+    #>
     return $results
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  A4 — DORMANT ACCOUNTS (No logon within N days)
-# ─────────────────────────────────────────────────────────────────────────────
-function Invoke-DormantAccountAudit {
+    <#
+function ServiceAccounts{
     Write-Host ""
-    Write-Host "=================== A4: Dormant Accounts ===================" -ForegroundColor Green
-    Write-Host "Definition: enabled accounts with no logon activity within a threshold period." -ForegroundColor Yellow
-
-    [int]$DaysThreshold = Read-Host "Inactivity threshold in days (e.g. 90)"
-    $cutoffDate  = (Get-Date).AddDays(-$DaysThreshold)
-    $TimeLimit   = $cutoffDate.ToFileTime()
-
-    Write-Host "Searching for accounts not logged in since: $($cutoffDate.ToString('yyyy-MM-dd'))" -ForegroundColor Yellow
-
-    # lastlogontimestamp <= cutoff AND account is enabled (UAC bit 2 NOT set)
-    $searcher = New-Searcher -Filter "(&(objectCategory=person)(objectClass=user)(lastlogontimestamp<=$TimeLimit)(!userAccountControl:1.2.840.113556.1.4.803:=2))"
-
-    $accounts = $searcher.FindAll()
-    Write-Host "LDAP query returned $($accounts.Count) entries." -ForegroundColor Yellow
+    Write-Host "===================Auditing Service Accounts===================" -ForegroundColor Green
+    Write-Host "P.S. For this tool, a service account is defined as any account with no password expiry." -ForegroundColor Yellow
 
     $results = @()
-    foreach ($result in $accounts) {
-        $dn      = $result.Properties["distinguishedname"][0]
-        $account = Get-AccountDetails -MemberDN $dn
-        if ($account) {
-            $a = $account
-            $results += "" | Select-Object @{N="MemberName";E={$a.MemberName}},@{N="SamAccountName";E={$a.SamAccountName}},@{N="AccountStatus";E={$a.AccountStatus}},@{N="LastLogon";E={$a.LastLogon}},@{N="DaysSinceLogon";E={$a.DaysSinceLogon}},@{N="PasswordLastChanged";E={$a.PasswordLastChanged}},@{N="DaysSincePwdChange";E={$a.DaysSincePwdChange}},@{N="AccountCreated";E={$a.AccountCreated}}
-        }
-    }
 
-    Export-Results `
-        -Results $results `
-        -FileName "dormant_accounts" `
-        -DisplayColumns @("MemberName","SamAccountName","AccountStatus","LastLogon","DaysSinceLogon","PasswordLastChanged") `
-        -EmptyMessage "No dormant accounts found."
+    $Searcher = New-Object System.DirectoryServices.DirectorySearcher($directoryEntry)
+    $Searcher.Filter = "(&(ObjectClass=user)(userAccountControl:1.2.840.113556.1.4.803:=65536))"  # 1.2.840.113556.1.4.803 is a specialized "Bitwise AND" rule. 65536 is the decimal value for the "Password Never Expires" flag
+    $Searcher.SearchScope = [System.DirectoryServices.SearchScope]::Subtree
+    $Searcher.PropertiesToLoad.AddRange(@("distinguishedName", "name"))
+    $accounts = $Searcher.FindAll()
+    Write-Host "Searching from: $($testSearcher.SearchRoot.Path)" -ForegroundColor Magenta
+
+
+    foreach($result in $accounts){
+        $dn = $result.Properties.distinguishedname[0]
+        $account = Get-AccountDetails -MemberDN $dn
+            if ($account) {
+                $results += [PSCustomObject]@{
+                MemberName = $account.MemberName
+                SamAccountName = $account.SamAccountName
+                #SID = $account.objectsid
+                AccountCreated = $account.AccountCreated
+                PasswordLastChanged = $account.PasswordLastChanged
+                DaysSincePwdChange  = $account.DaysSincePwdChange
+                LastLogon = $account.LastLogon
+                AccountStatus = $account.AccountStatus
+                }
+            }
+      
+    }
+    
+    
+
+
+    # Output file
+    $OutputFile = Join-Path $OutputPath "service_accounts_$TargetDomain`_$TimeStamp.csv"
+
+    Write-Host "Found $($results.Count) service accounts" -ForegroundColor Yellow
+
+    if ($results.Count -gt 0){
+        $results | Format-Table MemberName, SamAccountName, AccountStatus, PasswordLastChanged, DaysSincePwdChange, AccountCreated -AutoSize
+        $results | Export-Csv -Path $OutputFile -NoTypeInformation
+        Write-Host "Results exported to: $OutputFile" -ForegroundColor Cyan
+    }
+    else {
+        Write-Host "No service accounts found."
+    }
 
     return $results
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  A5 — STALE ACCOUNTS (Password not changed within N days)
-# ─────────────────────────────────────────────────────────────────────────────
-function Invoke-StaleAccountAudit {
-    Write-Host ""
-    Write-Host "=================== A5: Stale Accounts ===================" -ForegroundColor Green
-    Write-Host "Definition: enabled accounts whose password has not changed within the threshold." -ForegroundColor Yellow
+    #>
 
-    [int]$DaysThreshold = Read-Host "Password age threshold in days (e.g. 180)"
+function DormantAccounts{
+    Write-Host ""
+    Write-Host "===================Auditing Dormant Accounts===================" -ForegroundColor Green
+    Write-Host "P.S. For this tool, a dormant account is defined as any account that shows no activity within a specified period." -ForegroundColor Yellow
+    $DaysThreshold = Read-Host -Prompt "Days Threashold for No Activity: "
+    Write-Host "Searching for accounts with passwords older than $DaysThreshold days."
+
     $cutoffDate = (Get-Date).AddDays(-$DaysThreshold)
-    $TimeLimit  = $cutoffDate.ToFileTime()
+    $TimeLimit = $cutoffDate.ToFileTime()
 
-    Write-Host "Searching for accounts with password older than: $($cutoffDate.ToString('yyyy-MM-dd'))" -ForegroundColor Yellow
-
-    $searcher = New-Searcher -Filter "(&(objectCategory=person)(objectClass=user)(pwdLastSet<=$TimeLimit)(!userAccountControl:1.2.840.113556.1.4.803:=2))"
-
-    $accounts = $searcher.FindAll()
-    Write-Host "LDAP query returned $($accounts.Count) entries." -ForegroundColor Yellow
 
     $results = @()
-    foreach ($result in $accounts) {
-        $dn      = $result.Properties["distinguishedname"][0]
+
+    $Searcher = New-Object System.DirectoryServices.DirectorySearcher($directoryEntry) 
+    $Searcher.Filter = "(&(objectCategory=person)(objectClass=user)(lastlogontimestamp<=$TimeLimit)(!userAccountControl:1.2.840.113556.1.4.803:=2))"  # 1.2.840.113556.1.4.803 is a specialized "Bitwise AND" rule. 2 is the decimal value for the "disabled" flag
+    $Searcher.SearchScope = [System.DirectoryServices.SearchScope]::Subtree  # tells PowerShell how deep into the Active Directory folders (OUs) it should look. basically telling to look inside every single sub-folder and sub-sub-folder all the way to the bottom
+    $Searcher.PropertiesToLoad.AddRange(@("distinguishedName", "name")) | Out-Null
+    $accounts = $Searcher.FindAll()
+    Write-Host "Searching from: $($testSearcher.SearchRoot.Path)" -ForegroundColor Magenta
+
+
+    foreach($result in $accounts){
+        $dn = $result.Properties.distinguishedname[0]
         $account = Get-AccountDetails -MemberDN $dn
-        if ($account) {
-            $a = $account
-            $results += "" | Select-Object @{N="MemberName";E={$a.MemberName}},@{N="SamAccountName";E={$a.SamAccountName}},@{N="AccountStatus";E={$a.AccountStatus}},@{N="PasswordLastChanged";E={$a.PasswordLastChanged}},@{N="DaysSincePwdChange";E={$a.DaysSincePwdChange}},@{N="LastLogon";E={$a.LastLogon}},@{N="AccountCreated";E={$a.AccountCreated}}
-        }
+            if ($account) {
+                $results += [PSCustomObject]@{
+                MemberName = $account.MemberName
+                SamAccountName = $account.SamAccountName
+                #SID = $SID
+                AccountCreated = $account.AccountCreated
+                PasswordLastChanged = $account.PasswordLastChanged
+                DaysSincePwdChange  = $account.DaysSincePwdChange
+                LastLogon = $account.LastLogon
+                AccountStatus = $account.AccountStatus
+                }
+            }
+      
     }
+    
 
     Export-Results `
-        -Results $results `
-        -FileName "stale_accounts" `
-        -DisplayColumns @("MemberName","SamAccountName","AccountStatus","PasswordLastChanged","DaysSincePwdChange","LastLogon") `
-        -EmptyMessage "No stale accounts found."
+        -Results        $results `
+        -FileName       "dormant_accounts" `
+        -SectionTitle   "Dormant Accounts (Inactive &gt; $DaysThreshold days)" `
+        -ModuleTag      "A4" `
+        -DisplayColumns @("MemberName","SamAccountName","AccountStatus","LastLogon","DaysSincePwdChange","PasswordLastChanged","AccountCreated") `
+        -EmptyMessage   "No dormant accounts found."
 
+
+    <#
+    # Output file
+    $OutputFile = Join-Path $OutputPath "dormant_accounts_$TargetDomain`_$TimeStamp.csv"
+
+    Write-Host "Found $($results.Count) dormant accounts" -ForegroundColor Yellow
+
+    if ($results.Count -gt 0){
+        $results | Format-Table MemberName, SamAccountName, AccountStatus, PasswordLastChanged, DaysSincePwdChange, AccountCreated -AutoSize
+        $results | Export-Csv -Path $OutputFile -NoTypeInformation
+        Write-Host "Results exported to: $OutputFile" -ForegroundColor Cyan
+    }
+    else {
+        Write-Host "No dormant accounts found."
+    }
+    #>
     return $results
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  A6 — UNCONSTRAINED DELEGATION
-# ─────────────────────────────────────────────────────────────────────────────
-function Invoke-DelegationAudit {
+
+
+
+function StaleAccounts{
     Write-Host ""
-    Write-Host "=================== A6: Unconstrained Delegation ===================" -ForegroundColor Green
+    Write-Host "===================Auditing Stale Accounts===================" -ForegroundColor Green
+    Write-Host "P.S. For this tool, a stale account is defined as any account that has not changed password within a specified period." -ForegroundColor Yellow
+    $DaysThreshold = Read-Host -Prompt "Days Threashold for Password Expiry: "
+    Write-Host "Searching for accounts with passwords older than $DaysThreshold days."
 
-    # UAC bit 524288 (0x80000) = TRUSTED_FOR_DELEGATION
-    $searcher = New-Searcher -Filter "(&(objectClass=user)(userAccountControl:1.2.840.113556.1.4.803:=524288)(!userAccountControl:1.2.840.113556.1.4.803:=2))"
+    $cutoffDate = (Get-Date).AddDays(-$DaysThreshold)
+    $TimeLimit = $cutoffDate.ToFileTime()
 
-    $accounts = $searcher.FindAll()
-    Write-Host "LDAP query returned $($accounts.Count) entries." -ForegroundColor Yellow
 
     $results = @()
-    foreach ($result in $accounts) {
-        $dn      = $result.Properties["distinguishedname"][0]
+
+    $Searcher = New-Object System.DirectoryServices.DirectorySearcher($directoryEntry) 
+    $Searcher.Filter = "(&(objectCategory=person)(objectClass=user)(pwdLastSet<=$TimeLimit)(!userAccountControl:1.2.840.113556.1.4.803:=2))"  # 1.2.840.113556.1.4.803 is a specialized "Bitwise AND" rule. 2 is the decimal value for the "disabled" flag
+    $Searcher.SearchScope = [System.DirectoryServices.SearchScope]::Subtree  # tells PowerShell how deep into the Active Directory folders (OUs) it should look. basically telling to look inside every single sub-folder and sub-sub-folder all the way to the bottom
+    $Searcher.PropertiesToLoad.AddRange(@("distinguishedName", "name")) | Out-Null
+    $accounts = $Searcher.FindAll()
+    Write-Host "Searching from: $($testSearcher.SearchRoot.Path)" -ForegroundColor Magenta
+
+
+    foreach($result in $accounts){
+        $dn = $result.Properties.distinguishedname[0]
         $account = Get-AccountDetails -MemberDN $dn
-        if ($account) {
-            $a = $account
-            $results += "" | Select-Object @{N="MemberName";E={$a.MemberName}},@{N="SamAccountName";E={$a.SamAccountName}},@{N="AccountStatus";E={$a.AccountStatus}},@{N="PasswordLastChanged";E={$a.PasswordLastChanged}},@{N="DaysSincePwdChange";E={$a.DaysSincePwdChange}},@{N="LastLogon";E={$a.LastLogon}},@{N="AccountCreated";E={$a.AccountCreated}},@{N="Groups";E={$a.Groups}}
-        }
+            if ($account) {
+                $results += [PSCustomObject]@{
+                MemberName = $account.MemberName
+                SamAccountName = $account.SamAccountName
+                #SID = $account.objectsid
+                AccountCreated = $account.AccountCreated
+                PasswordLastChanged = $account.PasswordLastChanged
+                DaysSincePwdChange  = $account.DaysSincePwdChange
+                LastLogon = $account.LastLogon
+                AccountStatus = $account.AccountStatus
+                }
+            }
+      
     }
+    
 
     Export-Results `
-        -Results $results `
-        -FileName "unconstrained_delegation" `
-        -DisplayColumns @("MemberName","SamAccountName","AccountStatus","PasswordLastChanged","DaysSincePwdChange","LastLogon") `
-        -EmptyMessage "No accounts with unconstrained delegation found."
+        -Results        $results `
+        -FileName       "stale_accounts" `
+        -SectionTitle   "Stale Accounts (Password &gt; $DaysThreshold days old)" `
+        -ModuleTag      "A5" `
+        -DisplayColumns @("MemberName","SamAccountName","AccountStatus","PasswordLastChanged","DaysSincePwdChange","LastLogon","AccountCreated") `
+        -EmptyMessage   "No stale accounts found."
 
+    <#
+    # Output file
+    $OutputFile = Join-Path $OutputPath "stale_accounts_$TargetDomain`_$TimeStamp.csv"
+
+    Write-Host "Found $($results.Count) stale accounts" -ForegroundColor Yellow
+
+    if ($results.Count -gt 0){
+        $results | Format-Table MemberName, SamAccountName, AccountStatus, PasswordLastChanged, DaysSincePwdChange, AccountCreated -AutoSize
+        $results | Export-Csv -Path $OutputFile -NoTypeInformation
+        Write-Host "Results exported to: $OutputFile" -ForegroundColor Cyan
+    }
+    else {
+        Write-Host "No stale accounts found."
+    }
+    #>
     return $results
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  A7 — KERBEROASTABLE ACCOUNTS (SPN set)
-# ─────────────────────────────────────────────────────────────────────────────
-function Invoke-KerberoastAudit {
+
+
+
+function Delegation{
     Write-Host ""
-    Write-Host "=================== A7: Kerberoastable Accounts ===================" -ForegroundColor Green
-    Write-Host "Any enabled user account with a Service Principal Name (SPN) registered." -ForegroundColor Yellow
-
-    $searcher = New-Searcher -Filter "(&(objectClass=user)(objectCategory=person)(!userAccountControl:1.2.840.113556.1.4.803:=2)(servicePrincipalName=*))"
-
-    $accounts = $searcher.FindAll()
-    Write-Host "LDAP query returned $($accounts.Count) entries." -ForegroundColor Yellow
-
+    Write-Host "===================Auditing Accounts with Unconstrained Delegartion =========================" -ForegroundColor Green
+   
     $results = @()
-    foreach ($result in $accounts) {
-        $dn      = $result.Properties["distinguishedname"][0]
-        $spns    = @($result.Properties["serviceprincipalname"]) -join "; "
+
+    $Searcher = New-Object System.DirectoryServices.DirectorySearcher($directoryEntry) 
+    $Searcher.Filter = "(&(objectClass=user)(userAccountControl:1.2.840.113556.1.4.803:=524288)(!userAccountControl:1.2.840.113556.1.4.803:=2))"  # Filter: User, Not Disabled, and Trusted for Delegation (524288)
+    $Searcher.SearchScope = [System.DirectoryServices.SearchScope]::Subtree  # tells PowerShell how deep into the Active Directory folders (OUs) it should look. basically telling to look inside every single sub-folder and sub-sub-folder all the way to the bottom
+    $Searcher.PropertiesToLoad.AddRange(@("distinguishedName", "name")) | Out-Null
+    $accounts = $Searcher.FindAll()
+    Write-Host "Searching from: $($testSearcher.SearchRoot.Path)" -ForegroundColor Magenta
+
+
+    foreach($result in $accounts){
+        $dn = $result.Properties.distinguishedname[0]
         $account = Get-AccountDetails -MemberDN $dn
-        if ($account) {
-            $a = $account; $s = $spns
-            $results += "" | Select-Object @{N="MemberName";E={$a.MemberName}},@{N="SamAccountName";E={$a.SamAccountName}},@{N="AccountStatus";E={$a.AccountStatus}},@{N="SPNs";E={$s}},@{N="PasswordLastChanged";E={$a.PasswordLastChanged}},@{N="DaysSincePwdChange";E={$a.DaysSincePwdChange}},@{N="LastLogon";E={$a.LastLogon}},@{N="AccountCreated";E={$a.AccountCreated}}
-        }
+            if ($account) {
+                $results += [PSCustomObject]@{
+                MemberName = $account.MemberName
+                SamAccountName = $account.SamAccountName
+                #SID = $account.objectsid
+                AccountCreated = $account.AccountCreated
+                PasswordLastChanged = $account.PasswordLastChanged
+                DaysSincePwdChange  = $account.DaysSincePwdChange
+                LastLogon = $account.LastLogon
+                AccountStatus = $account.AccountStatus
+                }
+            }
+      
     }
+    
 
     Export-Results `
-        -Results $results `
-        -FileName "kerberoastable_accounts" `
-        -DisplayColumns @("MemberName","SamAccountName","AccountStatus","SPNs","PasswordLastChanged","DaysSincePwdChange") `
-        -EmptyMessage "No Kerberoastable accounts found."
+        -Results        $results `
+        -FileName       "unconstrained_delegation_accounts" `
+        -SectionTitle   "Accounts with Unconstrained Delegation" `
+        -ModuleTag      "A6" `
+        -DisplayColumns @("MemberName","SamAccountName","AccountStatus","PasswordLastChanged","DaysSincePwdChange","LastLogon","AccountCreated") `
+        -EmptyMessage   "No accounts with unconstrained delegation found."
 
+
+    <#
+    # Output file
+    $OutputFile = Join-Path $OutputPath "unconstrained_delegation_accounts_$TargetDomain`_$TimeStamp.csv"
+
+    Write-Host "Found $($results.Count) accounts with unconstrained delegation" -ForegroundColor Yellow
+
+    if ($results.Count -gt 0){
+        $results | Format-Table MemberName, SamAccountName, AccountStatus, PasswordLastChanged, DaysSincePwdChange, AccountCreated -AutoSize
+        $results | Export-Csv -Path $OutputFile -NoTypeInformation
+        Write-Host "Results exported to: $OutputFile" -ForegroundColor Cyan
+    }
+    else {
+        Write-Host "No accounts with unconstrained delegation found."
+    }
+    #>
     return $results
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  R1 — USER INFO (single user lookup)
-# ─────────────────────────────────────────────────────────────────────────────
-function Invoke-UserInfo {
+
+
+
+function Kerberoast{
     Write-Host ""
-    Write-Host "=================== R1: Domain User Information ===================" -ForegroundColor Green
+    Write-Host "===================Auditing Kerberoastable Accounts =========================" -ForegroundColor Green
+    Write-Host "A Kerberoastable account is any Active Directory (AD) user account that has a Service Principal Name (SPN) assigned to it"
+   
+    $results = @()
 
-    $domainUser = Read-Host "Enter the sAMAccountName to look up"
+    $Searcher = New-Object System.DirectoryServices.DirectorySearcher($directoryEntry) 
+    $Searcher.Filter = "(&(objectClass=user)(objectCategory=person)(!userAccountControl:1.2.840.113556.1.4.803:=2)(servicePrincipalName=*))"  # Filter: User, Not Disabled, and has an SPN set (servicePrincipalName=*)
+    $Searcher.SearchScope = [System.DirectoryServices.SearchScope]::Subtree  # tells PowerShell how deep into the Active Directory folders (OUs) it should look. basically telling to look inside every single sub-folder and sub-sub-folder all the way to the bottom
+    $Searcher.PropertiesToLoad.AddRange(@("distinguishedName", "name")) | Out-Null
+    $accounts = $Searcher.FindAll()
+    Write-Host "Searching from: $($testSearcher.SearchRoot.Path)" -ForegroundColor Magenta
 
-    $searcher = New-Searcher -Filter "(&(objectClass=user)(sAMAccountName=$domainUser))"
 
-    $result = $searcher.FindOne()
-
-    if ($result -and $result.Properties["distinguishedname"].Count -gt 0) {
-        $dn      = $result.Properties["distinguishedname"][0]
+    foreach($result in $accounts){
+        $dn = $result.Properties.distinguishedname[0]
         $account = Get-AccountDetails -MemberDN $dn
-        if ($account) {
+            if ($account) {
+                $results += [PSCustomObject]@{
+                MemberName = $account.MemberName
+                SamAccountName = $account.SamAccountName
+                #SID = $account.objectsid
+                AccountCreated = $account.AccountCreated
+                PasswordLastChanged = $account.PasswordLastChanged
+                DaysSincePwdChange  = $account.DaysSincePwdChange
+                LastLogon = $account.LastLogon
+                AccountStatus = $account.AccountStatus
+                }
+            }
+      
+    }
+    
+    Export-Results `
+        -Results        $results `
+        -FileName       "kerberoastable_accounts" `
+        -SectionTitle   "Kerberoastable Accounts (SPN Registered)" `
+        -ModuleTag      "A7" `
+        -DisplayColumns @("MemberName","SamAccountName","AccountStatus","PasswordLastChanged","DaysSincePwdChange","LastLogon","AccountCreated") `
+        -EmptyMessage   "No kerberoastable accounts found."
+
+    <#
+    # Output file
+    $OutputFile = Join-Path $OutputPath "kerberoastable_accounts_$TargetDomain`_$TimeStamp.csv"
+
+    Write-Host "Found $($results.Count) kerberoastable accounts" -ForegroundColor Yellow
+
+    if ($results.Count -gt 0){
+        $results | Format-Table MemberName, SamAccountName, AccountStatus, PasswordLastChanged, DaysSincePwdChange, AccountCreated -AutoSize
+        $results | Export-Csv -Path $OutputFile -NoTypeInformation
+        Write-Host "Results exported to: $OutputFile" -ForegroundColor Cyan
+    }
+    else {
+        Write-Host "No kerberoastable accounts found."
+    }
+    #>
+    return $results
+}
+
+
+function UserInfo{
+
+    Write-Host ""
+    Write-Host "===================Domain User Information Retriever==========================" -ForegroundColor Green
+
+    $domainuser = Read-Host "Enter the domain user to check (e.g test.account): "
+
+    $Searcher = New-Object System.DirectoryServices.DirectorySearcher($directoryEntry)
+    $Searcher.Filter = "(&(objectClass=user)(sAMAccountName=$domainuser))"
+    $Searcher.PropertiesToLoad.AddRange(@("name", "samaccountname", "distinguishedname"))
+
+    $result = $Searcher.FindOne()
+
+    if ($result){
+        $dn = $result.Properties.distinguishedname[0]
+        $account = Get-AccountDetails -MemberDN $dn
+        Write-Host ""
+    
+        if($account){
+            #$account | Add-Member -NotePropertyName DomainAccount -NotePropertyValue "$TargetDomainName\$($account.SamAccountName)" -Force
             $account | Format-List
         }
-    } else {
-        Write-Host "User '$domainUser' not found in $TargetDomain." -ForegroundColor Red
+    }else{
+        Write-Host "Error: Could not resolve the user '$domainuser' in domain '$TargetDomainName'."
     }
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  R2 — SID TRANSLATOR
-#  CLM NOTE: SecurityIdentifier byte conversion done via the type accelerator.
-#  Hex-encoding loop uses simple string ops (no Add-Type needed).
-# ─────────────────────────────────────────────────────────────────────────────
-function Invoke-SIDTranslator {
+
+function SIDTranslator{
+
     Write-Host ""
-    Write-Host "=================== R2: SID Translator ===================" -ForegroundColor Green
+    Write-Host "===================SID Translator==========================" -ForegroundColor Green
 
-    $OnPremiseSID = Read-Host "Enter SID (e.g. S-1-5-21-...)"
+    $OnPremiseSID = Read-Host "Enter the On-Premises SID (e.g S-1-5-21-....): "
 
-    # CLM blocks ::new() on SecurityIdentifier and [byte[]]::new().
-    # Instead, parse the SID string manually to build the raw byte array,
-    # then hex-encode it for the LDAP objectSid filter — no type creation needed.
-    try {
-        # Parse "S-R-A-S1-S2-..." into parts
-        $parts     = $OnPremiseSID -split "-"
-        # parts[0]="S", [1]=revision, [2]=authority, [3..n]=subauthorities
-        $revision  = [int]$parts[1]
-        $authority = [long]$parts[2]
-        $subs      = @()
-        for ($i = 3; $i -lt $parts.Count; $i++) { $subs += [long]$parts[$i] }
-        $subCount  = $subs.Count
-
-        # Build byte array manually (SID binary format):
-        # Byte 0: Revision, Byte 1: SubAuthorityCount,
-        # Bytes 2-7: Authority (big-endian 6 bytes), Bytes 8+: SubAuthorities (4 bytes LE each)
-        $sidBytes = @()
-        $sidBytes += [byte]$revision
-        $sidBytes += [byte]$subCount
-        # Authority as 6 big-endian bytes
-        $sidBytes += [byte](($authority -shr 40) -band 0xFF)
-        $sidBytes += [byte](($authority -shr 32) -band 0xFF)
-        $sidBytes += [byte](($authority -shr 24) -band 0xFF)
-        $sidBytes += [byte](($authority -shr 16) -band 0xFF)
-        $sidBytes += [byte](($authority -shr  8) -band 0xFF)
-        $sidBytes += [byte]( $authority           -band 0xFF)
-        # Each sub-authority as 4 little-endian bytes
-        foreach ($sub in $subs) {
-            $sidBytes += [byte]( $sub          -band 0xFF)
-            $sidBytes += [byte](($sub -shr  8) -band 0xFF)
-            $sidBytes += [byte](($sub -shr 16) -band 0xFF)
-            $sidBytes += [byte](($sub -shr 24) -band 0xFF)
-        }
-
-        # Build escaped hex string for LDAP filter
-        #$hexSid = "\" + ($sidBytes | ForEach-Object { $_.ToString("X2") } | Select-Object -First 999) -join "\"
-
-        $hexSid = "\" + (($sidBytes | ForEach-Object { $_.ToString("X2") }) -join "\")
+    $sid = New-Object System.Security.Principal.SecurityIdentifier($OnPremiseSID)
+    [byte[]]$sidBytes = New-Object byte[] $sid.BinaryLength  #In Active Directory, the objectSid attribute is stored as a byte array (binary), not as a string like S-1-5-21.... If you try to search using the string representation, the DirectorySearcher won't find a match.
+    $sid.GetBinaryForm($sidBytes, 0) #convert the string SID into its hex/byte format for LDAP to understand it.
+    $hexSid = "\" + (($sidBytes | ForEach-Object { $_.ToString("X2") }) -join "\")
 
 
-        $searcher = New-Searcher -Filter "(&(objectClass=user)(objectSid=$hexSid))"
-        $result   = $searcher.FindOne()
+    $Searcher = New-Object System.DirectoryServices.DirectorySearcher($directoryEntry)
+    $Searcher.Filter = "(&(objectClass=user)(objectSid=$hexSid))"
+    $Searcher.PropertiesToLoad.AddRange(@("name", "samaccountname", "distinguishedname"))
 
-        if ($result -and $result.Properties["distinguishedname"].Count -gt 0) {
-            $dn      = $result.Properties["distinguishedname"][0]
-            $account = Get-AccountDetails -MemberDN $dn
-            if ($account) {
-                Write-Host ""
-                Write-Host "SID $OnPremiseSID resolves to: $($account.SamAccountName)" -ForegroundColor Cyan
-                $account | Format-List
-            }
-        } else {
-            Write-Host "No user found for SID: $OnPremiseSID" -ForegroundColor Red
-        }
-    } catch {
-        Write-Host "SID parse error: $($_.Exception.Message)" -ForegroundColor Red
-    }
-}
+    $result = $Searcher.FindOne()
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  R3 — USER DUMP (all users to CSV)
-# ─────────────────────────────────────────────────────────────────────────────
-function Invoke-UserDump {
-    Write-Host ""
-    Write-Host "=================== R3: Full User Dump ===================" -ForegroundColor Green
-
-    $searcher = New-Searcher -Filter "(&(objectClass=user)(objectCategory=person))"
-
-    $allUsers = $searcher.FindAll()
-    Write-Host "Found $($allUsers.Count) user objects. Processing..." -ForegroundColor Yellow
-
-    $outputFile = Join-Path $OutputPath "${TargetDomain}_user_dump_${TimeStamp}.csv"
-    $count = 0
-
-    $userData = foreach ($result in $allUsers) {
-        $dn = $result.Properties["distinguishedname"][0]
+    if ($result){
+        $dn = $result.Properties.distinguishedname[0]
         $account = Get-AccountDetails -MemberDN $dn
-        if ($account) {
-            $count++
-            $account
+        Write-Host ""
+        Write-Host "The username associated with this SID is:"$account.SamAccountName"" -ForegroundColor Cyan
+    
+        if($account){
+            #$account | Add-Member -NotePropertyName DomainAccount -NotePropertyValue "$TargetDomainName\$($account.SamAccountName)" -Force
+            $account | Format-List
         }
+    }else{
+        Write-Host "Error: Could not resolve the SID '$OnPremisesSID' in domain '$TargetDomainName'."
     }
+}
+
+
+function UserDump{
+
+    Write-Host ""
+    Write-Host "===================User Dump==========================" -ForegroundColor Green
+
+    $Searcher = New-Object System.DirectoryServices.DirectorySearcher($directoryEntry)
+    $Searcher.Filter = "(&(objectClass=user)(objectCategory=person))"
+    $Searcher.PropertiesToLoad.Add("distinguishedName")
+
+    $Searcher.PageSize = 1000 #PageSize is required for more than 1000 users
+
+    $results = $Searcher.FindAll()
+    $totalCount = $results.Count
+    Write-Host "Found $totalCount users. Processing data..." -ForegroundColor Yellow
+
+
+    $userData = foreach ($result in $results) {
+        $dn = $result.Properties.distinguishedname[0]
+        # Call your existing function
+        Get-AccountDetails -MemberDN $dn
+    }
+
+    $OutputFile = Join-Path $OutputPath "$($TargetDomain)_user_dump_$($TimeStamp).csv"
 
     if ($userData) {
-        $userData | Export-Csv -Path $outputFile -NoTypeInformation -Encoding UTF8
-        Write-Host "Exported $count user records to: $outputFile" -ForegroundColor Cyan
+        $userData | Export-Csv -Path $OutputFile -NoTypeInformation -Encoding UTF8
+        Write-Host "Successfully dumped $totalCount users to: $OutputFile"
     } else {
-        Write-Host "No user data retrieved." -ForegroundColor Red
+        Write-Host "No user data found to export." -ForegroundColor Red
     }
+
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  DISPATCH
-# ─────────────────────────────────────────────────────────────────────────────
-Write-Host ""
-Write-Host "Dispatching: $TargetAudit" -ForegroundColor Yellow
-Write-Host ""
+<#
+In the world of LDAP (the language Active Directory speaks), the logic is Prefix Notation. This means the operator (&, |, !) must always come before the parentheses, not between them.
+#>
 
-switch ($TargetAudit.ToLower()) {
-    "r1"  { Invoke-UserInfo }
-    "r2"  { Invoke-SIDTranslator }
-    "r3"  { Invoke-UserDump }
-    "a1"  { Invoke-AdminAudit }
-    "a2"  { Invoke-DCSyncAudit }
-    "a3"  { Invoke-ServiceAccountAudit }
-    "a4"  { Invoke-DormantAccountAudit }
-    "a5"  { Invoke-StaleAccountAudit }
-    "a6"  { Invoke-DelegationAudit }
-    "a7"  { Invoke-KerberoastAudit }
-    "all" {
-        Write-Host "Running all audit modules..." -ForegroundColor Yellow
-        Invoke-AdminAudit
-        Invoke-DCSyncAudit
-        Invoke-ServiceAccountAudit
-        Invoke-DormantAccountAudit
-        Invoke-StaleAccountAudit
-        Invoke-DelegationAudit
-        Invoke-KerberoastAudit
+
+ # THE AUTHENTICATION TEST 
+
+try {
+      # RefreshCache() forces an immediate LDAP Bind. 
+     # If the password is wrong or the server is down, it throws a Terminating Error.
+    $directoryEntry.RefreshCache()
+    
+    Write-Host "Success! Authenticated as $($Credential.UserName)" -ForegroundColor Cyan
+
+    Write-Host ""
+
+    # Executable Option Selection
+
+
+    Switch($TargetAudit){
+        "r1" {
+            UserInfo -TargetDomainName $TargetDomain -TargetDomainDN $TargetDomainDN -Credential $Credential -DomainController $dcToUse -OutpuPath $OutputPath
+        }
+    
+        "r2" {
+            SIDTranslator -TargetDomainName $TargetDomain -TargetDomainDN $TargetDomainDN -Credential $Credential -DomainController $dcToUse -OutpuPath $OutputPath
+        }
+    
+        "r3" {
+            UserDump -TargetDomainName $TargetDomain -TargetDomainDN $TargetDomainDN -Credential $Credential -DomainController $dcToUse -OutpuPath $OutputPath
+        }
+    
+        "a1" {
+            Admins -TargetDomainName $TargetDomain -TargetDomainDN $TargetDomainDN -Credential $Credential -DomainController $dcToUse -OutpuPath $OutputPath
+        }
+    
+        "a2" {
+            DCSync -TargetDomainName $TargetDomain -TargetDomainDN $TargetDomainDN -Credential $Credential -DomainController $dcToUse -OutpuPath $OutputPath
+        }
+    
+        "a3" {
+            ServiceAccounts -TargetDomainName $TargetDomain -TargetDomainDN $TargetDomainDN -Credential $Credential -DomainController $dcToUse -OutpuPath $OutputPath
+        }
+    
+        "a4" {
+            DormantAccounts -TargetDomainName $TargetDomain -TargetDomainDN $TargetDomainDN -Credential $Credential -DomainController $dcToUse -OutpuPath $OutputPath
+        }
+    
+        "a5" {
+            StaleAccounts -TargetDomainName $TargetDomain -TargetDomainDN $TargetDomainDN -Credential $Credential -DomainController $dcToUse -OutpuPath $OutputPath
+        }
+    
+        "a6" {
+            Delegation -TargetDomainName $TargetDomain -TargetDomainDN $TargetDomainDN -Credential $Credential -DomainController $dcToUse -OutpuPath $OutputPath
+        }
+    
+        "a7" {
+            Kerberoast -TargetDomainName $TargetDomain -TargetDomainDN $TargetDomainDN -Credential $Credential -DomainController $dcToUse -OutpuPath $OutputPath
+        }
+    
+    
+        "all" {
+            Write-Host "Running all auditing modules" -ForegroundColor Yellow
+            Admins -TargetDomainName $TargetDomain -TargetDomainDN $TargetDomainDN -Credential $Credential -DomainController $dcToUse -OutpuPath $OutputPath
+            DCSync -TargetDomainName $TargetDomain -TargetDomainDN $TargetDomainDN -Credential $Credential -DomainController $dcToUse -OutpuPath $OutputPath
+            ServiceAccounts -TargetDomainName $TargetDomain -TargetDomainDN $TargetDomainDN -Credential $Credential -DomainController $dcToUse -OutpuPath $OutputPath
+            DormantAccounts -TargetDomainName $TargetDomain -TargetDomainDN $TargetDomainDN -Credential $Credential -DomainController $dcToUse -OutpuPath $OutputPath
+            StaleAccounts -TargetDomainName $TargetDomain -TargetDomainDN $TargetDomainDN -Credential $Credential -DomainController $dcToUse -OutpuPath $OutputPath
+            Delegation -TargetDomainName $TargetDomain -TargetDomainDN $TargetDomainDN -Credential $Credential -DomainController $dcToUse -OutpuPath $OutputPath
+            Kerberoast -TargetDomainName $TargetDomain -TargetDomainDN $TargetDomainDN -Credential $Credential -DomainController $dcToUse -OutpuPath $OutputPath
+        }
+    
+        Default {
+            Write-Host "`n[!] Invalid option selected" -ForegroundColor Red
+        }
+    
     }
-    default {
-        Write-Host "[!] Invalid selection: '$TargetAudit'" -ForegroundColor Red
-    }
+
+
+}
+catch {
+    # 3. THE FAIL-SAFE
+    Write-Host "Authentication failed. Script cannot continue." -ForegroundColor Red
+    #Write-Error "Details: $($_.Exception.Message)"
+    
+    # Use 'exit' to stop the entire script immediately
+    exit 1 
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  CLEANUP
-# ─────────────────────────────────────────────────────────────────────────────
-Write-Host ""
-Write-Host "Cleaning up net use session..." -ForegroundColor Yellow
-$null = net use "\\$dcToUse\IPC$" /delete 2>$null
+
+
+
+# Genetrating HTML Report
+
+if ($ExportHTML -and $Script:HTMLSections.Count -gt 0) {
+    Write-Host ""
+    Write-Host "Generating HTML report..." -ForegroundColor Yellow
+    $htmlFile = Join-Path $OutputPath "ADReport_${TargetDomain}_${TimeStamp}.html"
+    Export-HTMLReport -AllSections $Script:HTMLSections -OutputFile $htmlFile
+}
+
+
 
 Write-Host ""
-Write-Host "======================== Analysis Complete ========================" -ForegroundColor Green
+Write-Host "------------------------Analysis Completed------------------------------------" -ForegroundColor Green
 
 
+Read-Host "Press Enter to exit"
