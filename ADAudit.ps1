@@ -18,8 +18,6 @@
     6. Accounts with unconstrained delegation"
     7. Kerberoastable Accounts: Accounts with registered SPN"
     
-.PARAMETER ExportOnly
-    Switch to suppress console output and only export to CSV.
 .EXAMPLE
     .\ADAudit.ps1
 #>
@@ -29,7 +27,7 @@
 
 param(
     [string]$OutputPath = "C:\Users\maisha.manarat\Desktop\AD", #Change Path to where you want to save the output file
-    [string]$ExportOnly,
+    #[string]$ExportOnly,
     [string]$TargetDomainController,
     [string]$TargetAudit,
     [ADSI]$directoryEntry,
@@ -87,18 +85,17 @@ Write-Host "a7. Kerberoastable Accounts: Accounts with registered SPN"
 Write-Host "-----------------------------------------------------------------------------------" -ForegroundColor Green
 
 Write-Host ""
-$Tool = Read-Host -Prompt "Tool to Use: (recon/audit): "
+Write-Host "Select Option (For Recon: r1,r2 or r3 || For Audit: a1,a2,a3,a4,a5,a6,a7 or all)"
+$TargetAudit = Read-Host -Prompt "Tool to Use: "
 
 
-
-if($Tool -eq "Audit"){
-    $TargetAudit = Read-Host -Prompt "Audit Point (a1-a7 or all): " 
-}elseif($Tool -eq "Recon"){
-    $TargetAudit = Read-Host -Prompt "Recon Point (r1, r2, or r3): " 
-}else{
-    Write-Host "Incorrect Option"
-}
-
+#if($Tool -eq "Audit"){
+#    $TargetAudit = Read-Host -Prompt "Audit Point (e.g a1,a2,a3,a4,a5,a6,a7 or all): " 
+#}elseif($Tool -eq "Recon"){
+#    $TargetAudit = Read-Host -Prompt "Recon Point (e.g r1,r2 or r3): " 
+#}else{
+#    Write-Host "Incorrect Option"
+#}
 
 
 
@@ -107,6 +104,32 @@ Write-Host "--------------------------------------------------------------------
 
 
 
+# Report Format Selection
+
+Write-Host ""
+Write-Host "---------------------------------Report Format-----------------------------" -ForegroundColor Green
+Write-Host "1. CSV"
+Write-Host "2. HTML"
+Write-Host "3. Both (CSV + HTML)"
+Write-Host "4. Screen only (no files saved)"
+$ReportFormat = Read-Host -Prompt "Select report format (1/2/3/4): "
+
+$ExportCSV    = ($ReportFormat -eq "1" -or $ReportFormat -eq "3")
+$ExportHTML   = ($ReportFormat -eq "2" -or $ReportFormat -eq "3")
+$ScreenOnly   = ($ReportFormat -eq "4")
+
+if (-not $ExportCSV -and -not $ExportHTML -and -not $ScreenOnly) {
+    Write-Host "Invalid selection, defaulting to CSV." -ForegroundColor Yellow
+    $ExportCSV = $true
+}
+
+if ($ScreenOnly) {
+    Write-Host "Screen-only mode: results will be displayed in the console and no files will be saved." -ForegroundColor Cyan
+}
+
+Write-Host ""
+
+Write-Host "-----------------------------------------------------------------------------------" -ForegroundColor Green
 
 # Get the target domain
 $TargetDomain = Read-Host -Prompt "Enter the target domain name to audit (e.g target.com): "
@@ -258,6 +281,627 @@ function Get-AccountDetails {
 
 
 
+
+function Export-HTMLReport {
+    param(
+        [object[]]$AllSections,   # array of hashtables: @{Title=...; Module=...; Columns=...; Data=...}
+        [string]$OutputFile
+    )
+
+    # Build summary counts
+    $summaryRows = ""
+    $sectionBlocks = ""
+
+    foreach ($section in $AllSections) {
+        $count = if ($section.Data) { $section.Data.Count } else { 0 }
+        $badgeClass = if ($count -gt 0) { "badge-warn" } else { "badge-ok" }
+        $summaryRows += @"
+        <tr>
+            <td><span class="module-tag">$($section.Module)</span></td>
+            <td>$($section.Title)</td>
+            <td><span class="badge $badgeClass">$count</span></td>
+        </tr>
+"@
+
+        # Build table for this section
+        if ($section.Data -and $section.Data.Count -gt 0) {
+            $headers = ""
+            foreach ($col in $section.Columns) {
+                $headers += "<th>$col</th>"
+            }
+
+            $rows = ""
+            foreach ($row in $section.Data) {
+                $cells = ""
+                foreach ($col in $section.Columns) {
+                    $val = $row.$col
+                    if ($null -eq $val) { $val = "" }
+
+                    # Style certain cell values
+                    if ($col -eq "AccountStatus") {
+                        if ($val -eq "Enabled") {
+                            $cells += "<td><span class='status-enabled'>$val</span></td>"
+                        } else {
+                            $cells += "<td><span class='status-disabled'>$val</span></td>"
+                        }
+                    } elseif ($col -like "DaysSince*") {
+                        $numVal = 0
+                        if ([int]::TryParse($val, [ref]$numVal)) {
+                            if ($numVal -gt 180) {
+                                $cells += "<td class='cell-danger'>$val</td>"
+                            } elseif ($numVal -gt 90) {
+                                $cells += "<td class='cell-warn'>$val</td>"
+                            } else {
+                                $cells += "<td>$val</td>"
+                            }
+                        } else {
+                            $cells += "<td>$val</td>"
+                        }
+                    } elseif ($col -eq "IsInherited") {
+                        if ($val -eq $true -or $val -eq "True") {
+                            $cells += "<td><span class='inherited'>Inherited</span></td>"
+                        } else {
+                            $cells += "<td><span class='explicit'>Explicit</span></td>"
+                        }
+                    } else {
+                        $cells += "<td>$val</td>"
+                    }
+                }
+                $rows += "<tr>$cells</tr>"
+            }
+
+            $sectionBlocks += @"
+    <section class="report-section" id="$($section.Module)">
+        <div class="section-header">
+            <span class="section-module">$($section.Module)</span>
+            <h2 class="section-title">$($section.Title)</h2>
+            <span class="section-count">$count finding(s)</span>
+        </div>
+        <div class="table-wrap">
+            <table>
+                <thead><tr>$headers</tr></thead>
+                <tbody>$rows</tbody>
+            </table>
+        </div>
+    </section>
+"@
+        } else {
+            $sectionBlocks += @"
+    <section class="report-section" id="$($section.Module)">
+        <div class="section-header">
+            <span class="section-module">$($section.Module)</span>
+            <h2 class="section-title">$($section.Title)</h2>
+            <span class="section-count">0 findings</span>
+        </div>
+        <div class="empty-state">
+            <div class="empty-icon">&#10003;</div>
+            <p>No issues found in this category.</p>
+        </div>
+    </section>
+"@
+        }
+    }
+
+    $totalFindings = 0
+    foreach ($section in $AllSections) {
+        if ($section.Data) { $totalFindings += $section.Data.Count }
+    }
+
+    $html = @"
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>AD Audit Report — $TargetDomain</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Syne:wght@400;600;700;800&display=swap');
+
+  :root {
+    --bg:        #09090f;
+    --bg2:       #0f0f1a;
+    --bg3:       #141424;
+    --border:    #1e1e3a;
+    --accent:    #00e5ff;
+    --accent2:   #7c3aed;
+    --warn:      #f59e0b;
+    --danger:    #ef4444;
+    --ok:        #10b981;
+    --text:      #e2e8f0;
+    --muted:     #64748b;
+    --mono:      'Share Tech Mono', monospace;
+    --sans:      'Syne', sans-serif;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 14px;
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+
+  /* ── GRID LINES BACKGROUND ── */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(0,229,255,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,229,255,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* ── HEADER ── */
+  .site-header {
+    position: relative;
+    z-index: 1;
+    padding: 48px 48px 32px;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, rgba(0,229,255,0.04) 0%, transparent 100%);
+  }
+
+  .header-eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--accent);
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    margin-bottom: 12px;
+  }
+
+  .header-eyebrow::before {
+    content: '> ';
+    opacity: 0.5;
+  }
+
+  .site-header h1 {
+    font-size: clamp(28px, 4vw, 48px);
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+    background: linear-gradient(135deg, #fff 0%, var(--accent) 60%, var(--accent2) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .header-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 24px;
+    margin-top: 20px;
+  }
+
+  .meta-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .meta-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  .meta-value {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--accent);
+  }
+
+  /* ── TOTAL FINDINGS HERO ── */
+  .findings-hero {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    gap: 32px;
+    padding: 32px 48px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .findings-number {
+    font-size: 72px;
+    font-weight: 800;
+    font-family: var(--mono);
+    color: var(--warn);
+    line-height: 1;
+    text-shadow: 0 0 40px rgba(245,158,11,0.3);
+  }
+
+  .findings-number.safe {
+    color: var(--ok);
+    text-shadow: 0 0 40px rgba(16,185,129,0.3);
+  }
+
+  .findings-label {
+    font-size: 13px;
+    color: var(--muted);
+    font-family: var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+
+  .findings-divider {
+    width: 1px;
+    height: 60px;
+    background: var(--border);
+  }
+
+  /* ── SUMMARY TABLE ── */
+  .summary-block {
+    position: relative;
+    z-index: 1;
+    padding: 32px 48px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .block-title {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    margin-bottom: 16px;
+  }
+
+  .summary-table {
+    width: 100%;
+    border-collapse: collapse;
+    max-width: 640px;
+  }
+
+  .summary-table td {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+  }
+
+  .summary-table tr:last-child td { border-bottom: none; }
+
+  .module-tag {
+    font-family: var(--mono);
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 3px;
+    background: rgba(0,229,255,0.1);
+    color: var(--accent);
+    border: 1px solid rgba(0,229,255,0.2);
+    letter-spacing: 0.05em;
+  }
+
+  .badge {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 700;
+    padding: 2px 10px;
+    border-radius: 20px;
+  }
+
+  .badge-warn {
+    background: rgba(245,158,11,0.15);
+    color: var(--warn);
+    border: 1px solid rgba(245,158,11,0.3);
+  }
+
+  .badge-ok {
+    background: rgba(16,185,129,0.1);
+    color: var(--ok);
+    border: 1px solid rgba(16,185,129,0.2);
+  }
+
+  /* ── MAIN CONTENT ── */
+  .content {
+    position: relative;
+    z-index: 1;
+    padding: 32px 48px;
+    display: flex;
+    flex-direction: column;
+    gap: 32px;
+  }
+
+  /* ── SECTION ── */
+  .report-section {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--bg2);
+    transition: border-color 0.2s;
+  }
+
+  .report-section:hover {
+    border-color: rgba(0,229,255,0.2);
+  }
+
+  .section-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 16px 20px;
+    background: var(--bg3);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .section-module {
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 3px;
+    background: rgba(124,58,237,0.15);
+    color: #a78bfa;
+    border: 1px solid rgba(124,58,237,0.25);
+    flex-shrink: 0;
+  }
+
+  .section-title {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text);
+    flex: 1;
+  }
+
+  .section-count {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    flex-shrink: 0;
+  }
+
+  /* ── TABLE ── */
+  .table-wrap {
+    overflow-x: auto;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+
+  thead tr {
+    background: rgba(0,0,0,0.3);
+  }
+
+  thead th {
+    padding: 10px 16px;
+    text-align: left;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-weight: 400;
+    white-space: nowrap;
+    border-bottom: 1px solid var(--border);
+  }
+
+  tbody tr {
+    border-bottom: 1px solid rgba(30,30,58,0.6);
+    transition: background 0.15s;
+  }
+
+  tbody tr:last-child { border-bottom: none; }
+
+  tbody tr:hover {
+    background: rgba(0,229,255,0.03);
+  }
+
+  tbody td {
+    padding: 10px 16px;
+    vertical-align: middle;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: #cbd5e1;
+    white-space: nowrap;
+  }
+
+  /* ── STATUS BADGES ── */
+  .status-enabled {
+    display: inline-block;
+    padding: 1px 8px;
+    border-radius: 3px;
+    background: rgba(16,185,129,0.1);
+    color: var(--ok);
+    border: 1px solid rgba(16,185,129,0.25);
+    font-size: 11px;
+  }
+
+  .status-disabled {
+    display: inline-block;
+    padding: 1px 8px;
+    border-radius: 3px;
+    background: rgba(100,116,139,0.1);
+    color: var(--muted);
+    border: 1px solid rgba(100,116,139,0.25);
+    font-size: 11px;
+  }
+
+  .inherited {
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  .explicit {
+    font-size: 11px;
+    color: var(--warn);
+    font-weight: 700;
+  }
+
+  /* ── CELL SEVERITY COLOURS ── */
+  .cell-warn { color: var(--warn) !important; }
+  .cell-danger { color: var(--danger) !important; }
+
+  /* ── EMPTY STATE ── */
+  .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 40px 20px;
+    gap: 8px;
+  }
+
+  .empty-icon {
+    font-size: 28px;
+    color: var(--ok);
+  }
+
+  .empty-state p {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  /* ── FOOTER ── */
+  footer {
+    position: relative;
+    z-index: 1;
+    text-align: center;
+    padding: 24px;
+    border-top: 1px solid var(--border);
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.05em;
+  }
+
+  footer span { color: var(--accent); }
+
+  @media print {
+    body::before { display: none; }
+    .report-section { break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+
+<header class="site-header">
+  <div class="header-eyebrow">Active Directory Audit Report</div>
+  <h1>$TargetDomain</h1>
+  <div class="header-meta">
+    <div class="meta-item">
+      <span class="meta-label">Domain Controller</span>
+      <span class="meta-value">$dcToUse</span>
+    </div>
+    <div class="meta-item">
+      <span class="meta-label">Audited By</span>
+      <span class="meta-value">$TargetDomain\$username</span>
+    </div>
+    <div class="meta-item">
+      <span class="meta-label">Generated</span>
+      <span class="meta-value">$ReportGeneratedAt</span>
+    </div>
+    <div class="meta-item">
+      <span class="meta-label">Tool</span>
+      <span class="meta-value">ADAudit v1.0</span>
+    </div>
+  </div>
+</header>
+
+<div class="findings-hero">
+  <div>
+    <div class="findings-number$(if ($totalFindings -eq 0) { ' safe' } else { '' })">$totalFindings</div>
+    <div class="findings-label">Total Findings</div>
+  </div>
+  <div class="findings-divider"></div>
+  <div>
+    <div class="findings-label">Scope: $TargetAudit</div>
+  </div>
+</div>
+
+<div class="summary-block">
+  <div class="block-title">// Module Summary</div>
+  <table class="summary-table">
+    <tbody>
+$summaryRows
+    </tbody>
+  </table>
+</div>
+
+<main class="content">
+$sectionBlocks
+</main>
+
+<footer>
+  Generated by <span>ADAudit</span> &nbsp;|&nbsp; $ReportGeneratedAt &nbsp;|&nbsp; Domain: <span>$TargetDomain</span>
+</footer>
+
+</body>
+</html>
+"@
+
+    $html | Out-File -FilePath $OutputFile -Encoding UTF8
+    Write-Host "HTML report saved to: $OutputFile" -ForegroundColor Cyan
+}
+
+
+
+# Accumulator for HTML sections (used when running "all")
+$Script:HTMLSections = @()
+
+function Export-Results {
+    param(
+        [object[]]$Results,
+        [string]  $FileName,
+        [string]  $SectionTitle,
+        [string]  $ModuleTag,
+        [string[]]$DisplayColumns,
+        [string]  $EmptyMessage
+    )
+
+    Write-Host "Found $($Results.Count) result(s)" -ForegroundColor Yellow
+
+    if ($Results.Count -gt 0) {
+        if ($ScreenOnly) {
+            # Screen-only: show full detail with Format-List, one record at a time
+            $i = 0
+            foreach ($row in $Results) {
+                $i++
+                Write-Host "--- [$i / $($Results.Count)] ---" -ForegroundColor DarkCyan
+                $row | Select-Object $DisplayColumns | Format-List
+            }
+        } else {
+            $Results | Format-Table $DisplayColumns -AutoSize
+        }
+    } else {
+        Write-Host $EmptyMessage -ForegroundColor Yellow
+    }
+
+    # CSV export
+    if ($ExportCSV -and $Results.Count -gt 0) {
+        $csvFile = Join-Path $OutputPath "${FileName}_${TargetDomain}_${TimeStamp}.csv"
+        $Results | Export-Csv -Path $csvFile -NoTypeInformation -Encoding UTF8
+        Write-Host "CSV exported to: $csvFile" -ForegroundColor Cyan
+    }
+
+    # Accumulate for HTML
+    if ($ExportHTML) {
+        $Script:HTMLSections += @{
+            Title   = $SectionTitle
+            Module  = $ModuleTag
+            Columns = $DisplayColumns
+            Data    = $Results
+        }
+    }
+    <#
+    if ($ExportHTML -and $Script:HTMLSections.Count -gt 0) {
+        Write-Host ""
+        Write-Host "Generating HTML report..." -ForegroundColor Yellow
+        $htmlFile = Join-Path $OutputPath "ADReport_${TargetDomain}_${TimeStamp}.html"
+        Export-HTMLReport -AllSections $Script:HTMLSections -OutputFile $htmlFile
+    }
+    #>
+}
+
+
 ### Accounts with Admin Accounts ###
 function Admins{
     Write-Host ""
@@ -300,6 +944,18 @@ function Admins{
 
         }
     }
+
+    Export-Results `
+        -Results        $results `
+        -FileName       "admin_accounts" `
+        -SectionTitle   "Administrator Accounts" `
+        -ModuleTag      "A1" `
+        -DisplayColumns @("Group","MemberName","SamAccountName","AccountStatus","PasswordLastChanged","DaysSincePwdChange","LastLogon","AccountCreated") `
+        -EmptyMessage   "No admin accounts found."
+
+
+
+    <#
     
     # Output file
     $OutputFile = Join-Path $OutputPath "admin_accounts_$TargetDomain`_$TimeStamp.csv"
@@ -315,6 +971,7 @@ function Admins{
         Write-Host "No admin accounts found."
     }
 
+    #>
     return $results
 }
 
@@ -400,8 +1057,16 @@ function DCSync{
         Write-Error "Failed to read Security Descriptor: $($_.Exception.Message)"
     }
 
-    
 
+    Export-Results `
+        -Results        $results `
+        -FileName       "accounts_with_dcsync_privileges" `
+        -SectionTitle   "Accounts with DCSync Privileges" `
+        -ModuleTag      "A2" `
+        -DisplayColumns @("Identity","Right","IsInherited","MemberName","SamAccountName","AccountStatus","PasswordLastChanged","DaysSincePwdChange","LastLogon","AccountCreated") `
+        -EmptyMessage   "No account DCSync rights found."
+    
+    <#
     # Output file
     $OutputFile = Join-Path $OutputPath "accounts_with_dcsync_privileges_$TargetDomain`_$TimeStamp.csv"
 
@@ -415,7 +1080,7 @@ function DCSync{
     } else {
         Write-Host "No account DCSync rights found" -ForegroundColor Yellow
     }
-
+    #>
     return $results
     #Write-Host "Found $($results.Count) accounts with dcsync privileges" -ForegroundColor Yellow
     # Output file
@@ -457,6 +1122,17 @@ function ServiceAccounts{
       
     }
     
+
+    Export-Results `
+        -Results        $results `
+        -FileName       "service_accounts" `
+        -SectionTitle   "Service Accounts (Password Never Expires)" `
+        -ModuleTag      "A3" `
+        -DisplayColumns @("MemberName","SamAccountName","AccountStatus","PasswordLastChanged","DaysSincePwdChange","LastLogon","AccountCreated") `
+        -EmptyMessage   "No service accounts found."
+
+
+    <#
     # Output file
     $OutputFile = Join-Path $OutputPath "service_accounts_$TargetDomain`_$TimeStamp.csv"
 
@@ -470,11 +1146,11 @@ function ServiceAccounts{
     else {
         Write-Host "No service accounts found."
     }
-
+    #>
     return $results
 }
 
-
+    <#
 function ServiceAccounts{
     Write-Host ""
     Write-Host "===================Auditing Service Accounts===================" -ForegroundColor Green
@@ -508,6 +1184,9 @@ function ServiceAccounts{
       
     }
     
+    
+
+
     # Output file
     $OutputFile = Join-Path $OutputPath "service_accounts_$TargetDomain`_$TimeStamp.csv"
 
@@ -525,7 +1204,7 @@ function ServiceAccounts{
     return $results
 }
 
-
+    #>
 
 function DormantAccounts{
     Write-Host ""
@@ -566,6 +1245,17 @@ function DormantAccounts{
       
     }
     
+
+    Export-Results `
+        -Results        $results `
+        -FileName       "dormant_accounts" `
+        -SectionTitle   "Dormant Accounts (Inactive &gt; $DaysThreshold days)" `
+        -ModuleTag      "A4" `
+        -DisplayColumns @("MemberName","SamAccountName","AccountStatus","LastLogon","DaysSincePwdChange","PasswordLastChanged","AccountCreated") `
+        -EmptyMessage   "No dormant accounts found."
+
+
+    <#
     # Output file
     $OutputFile = Join-Path $OutputPath "dormant_accounts_$TargetDomain`_$TimeStamp.csv"
 
@@ -579,12 +1269,9 @@ function DormantAccounts{
     else {
         Write-Host "No dormant accounts found."
     }
-
+    #>
     return $results
 }
-
-
-
 
 
 
@@ -628,6 +1315,16 @@ function StaleAccounts{
       
     }
     
+
+    Export-Results `
+        -Results        $results `
+        -FileName       "stale_accounts" `
+        -SectionTitle   "Stale Accounts (Password &gt; $DaysThreshold days old)" `
+        -ModuleTag      "A5" `
+        -DisplayColumns @("MemberName","SamAccountName","AccountStatus","PasswordLastChanged","DaysSincePwdChange","LastLogon","AccountCreated") `
+        -EmptyMessage   "No stale accounts found."
+
+    <#
     # Output file
     $OutputFile = Join-Path $OutputPath "stale_accounts_$TargetDomain`_$TimeStamp.csv"
 
@@ -641,7 +1338,7 @@ function StaleAccounts{
     else {
         Write-Host "No stale accounts found."
     }
-
+    #>
     return $results
 }
 
@@ -680,6 +1377,17 @@ function Delegation{
       
     }
     
+
+    Export-Results `
+        -Results        $results `
+        -FileName       "unconstrained_delegation_accounts" `
+        -SectionTitle   "Accounts with Unconstrained Delegation" `
+        -ModuleTag      "A6" `
+        -DisplayColumns @("MemberName","SamAccountName","AccountStatus","PasswordLastChanged","DaysSincePwdChange","LastLogon","AccountCreated") `
+        -EmptyMessage   "No accounts with unconstrained delegation found."
+
+
+    <#
     # Output file
     $OutputFile = Join-Path $OutputPath "unconstrained_delegation_accounts_$TargetDomain`_$TimeStamp.csv"
 
@@ -693,7 +1401,7 @@ function Delegation{
     else {
         Write-Host "No accounts with unconstrained delegation found."
     }
-
+    #>
     return $results
 }
 
@@ -733,6 +1441,15 @@ function Kerberoast{
       
     }
     
+    Export-Results `
+        -Results        $results `
+        -FileName       "kerberoastable_accounts" `
+        -SectionTitle   "Kerberoastable Accounts (SPN Registered)" `
+        -ModuleTag      "A7" `
+        -DisplayColumns @("MemberName","SamAccountName","AccountStatus","PasswordLastChanged","DaysSincePwdChange","LastLogon","AccountCreated") `
+        -EmptyMessage   "No kerberoastable accounts found."
+
+    <#
     # Output file
     $OutputFile = Join-Path $OutputPath "kerberoastable_accounts_$TargetDomain`_$TimeStamp.csv"
 
@@ -746,7 +1463,7 @@ function Kerberoast{
     else {
         Write-Host "No kerberoastable accounts found."
     }
-
+    #>
     return $results
 }
 
@@ -939,8 +1656,19 @@ catch {
 
 
 
+# Genetrating HTML Report
+
+if ($ExportHTML -and $Script:HTMLSections.Count -gt 0) {
+    Write-Host ""
+    Write-Host "Generating HTML report..." -ForegroundColor Yellow
+    $htmlFile = Join-Path $OutputPath "ADReport_${TargetDomain}_${TimeStamp}.html"
+    Export-HTMLReport -AllSections $Script:HTMLSections -OutputFile $htmlFile
+}
 
 
 
 Write-Host ""
 Write-Host "------------------------Analysis Completed------------------------------------" -ForegroundColor Green
+
+
+Read-Host "Press Enter to exit"
