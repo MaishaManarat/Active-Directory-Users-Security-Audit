@@ -26,7 +26,7 @@ A PowerShell-based tool for auditing and reconnaissance of Active Directory envi
 - Exports all results to timestamped CSV or HTML files
 - ADAduit_CLM.ps1 is the version to run in CLM (Constrained Language Mode) environment (ran my ADAduit.ps1 code through claude to create the CLM version). P.S: dcsync option might not work.
 - cross domain check might not work depending on the environment and network architecture.
-- ADAduit.exe files are the same code with beautified GUI. (I am not expert on GUIs, so let deepseek add the GUI, if do not wish to run my provided exe, simply turn the ps1 file exe file, instructions given below)<img width="820" height="443" alt="Screenshot 2026-07-29 145256" src="https://github.com/user-attachments/assets/a3c9db16-1238-427a-afe4-213339185cf4" />
+- ADAduit.exe files are the same code with beautified GUI. (I am not expert on GUIs, so let deepseek add the GUI, if do not wish to run my provided exe, simply turn the ps1 file exe file, instructions given below)
 
 ---
 
@@ -83,6 +83,13 @@ You will be prompted interactively to:
 3. Enter the target domain name (e.g. `corp.local`)
 4. Enter credentials for authentication
 5. You have the freedom to choose to define days in stale accounts/dormant accounts
+
+---
+
+## GUI Interface
+ADAduit.exe files are the same code with beautified GUI. (I am not expert on GUIs, so let deepseek add the GUI, if do not wish to run my provided exe, simply turn the ps1 file exe file, instructions given below)
+
+<img width="820" height="443" alt="Screenshot 2026-07-29 145256" src="https://github.com/user-attachments/assets/a3c9db16-1238-427a-afe4-213339185cf4" />
 
 ---
 
