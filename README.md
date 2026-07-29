@@ -24,8 +24,10 @@ A PowerShell-based tool for auditing and reconnaissance of Active Directory envi
 - Works against remote domains with supplied credentials
 - Auto-discovers Domain Controllers via DNS SRV records
 - Exports all results to timestamped CSV or HTML files
-- ADAduit_CLM.ps1 is the version to run in CLM (Constrained Language Mode) environment (-ran my ADAduit.ps1 code through claude to create the CLM version). P.S: dcsync option might not work.
-- cross domain check might not work depending on the environment and netowork architecure. 
+- ADAduit_CLM.ps1 is the version to run in CLM (Constrained Language Mode) environment (ran my ADAduit.ps1 code through claude to create the CLM version). P.S: dcsync option might not work.
+- cross domain check might not work depending on the environment and network architecture.
+- ADAduit.exe files are the same code with beautified GUI. (I am not expert on GUIs, so let deepseek add the GUI, if do not wish to run my provided exe, simply turn the ps1 file exe file, instructions given below)<img width="820" height="443" alt="Screenshot 2026-07-29 145256" src="https://github.com/user-attachments/assets/a3c9db16-1238-427a-afe4-213339185cf4" />
+
 ---
 
 ## ⚙️ Requirements
@@ -60,6 +62,11 @@ To run Full Language Mode (FLM) evironment- Usually where user has local admin p
 ```powershell
 .\ADAudit.ps1
 ```
+To make a .exe file (To add icon file, downloading the any ico file will do)
+
+```powershell
+ps2exe -inputFile "ADAudit.ps1" -outputFile "ADAudit-GUI.exe" -noConsole  -STA -title ADAudit -iconFile "icon.ico"
+```
 
 
 
@@ -88,6 +95,7 @@ You will be prompted interactively to:
 | `r1` | **User Info** | Retrieves detailed information about a specific domain user |
 | `r2` | **SID Translator** | Resolves an on-premises SID to a user account |
 | `r3` | **User Dump** | Exports all domain user accounts with key attributes to CSV |
+| `r4` | **DeviceId Translator** | Resolves an deviceId to a device hostname |
 
 ### Audit Modules
 
