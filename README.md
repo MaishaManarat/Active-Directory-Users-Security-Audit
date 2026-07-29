@@ -87,7 +87,8 @@ You will be prompted interactively to:
 ---
 
 ## GUI Interface
-ADAduit.exe files are the same code with beautified GUI. (I am not expert on GUIs, so let deepseek add the GUI, if do not wish to run my provided exe, simply turn the ps1 file exe file, instructions given below)
+
+GUI is available on the exe files. ADAduit.exe files are the same code with beautified GUI. (I am not expert on GUIs, so let deepseek add the GUI, if do not wish to run my provided exe, simply turn the ps1 file exe file, instructions given previously)
 
 <img width="820" height="443" alt="Screenshot 2026-07-29 145256" src="https://github.com/user-attachments/assets/a3c9db16-1238-427a-afe4-213339185cf4" />
 
