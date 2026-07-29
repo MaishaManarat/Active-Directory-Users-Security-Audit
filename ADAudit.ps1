@@ -70,6 +70,7 @@ Write-Host "--------------------Active Directory User Recon---------------------
 Write-Host "r1. Domain User Information Retriever "
 Write-Host "r2. SID Translator"
 Write-Host "r3. User Dump"
+Write-Host "r4. DeviceId Translator"
 
 
 Write-Host "---------------Active Directory User Security Audit-----------------" -ForegroundColor Green
@@ -85,7 +86,7 @@ Write-Host "a7. Kerberoastable Accounts: Accounts with registered SPN"
 Write-Host "-----------------------------------------------------------------------------------" -ForegroundColor Green
 
 Write-Host ""
-Write-Host "Select Option (For Recon: r1,r2 or r3 || For Audit: a1,a2,a3,a4,a5,a6,a7 or all)"
+Write-Host "Select Option (For Recon: r1,r2,r3 or r4 || For Audit: a1,a2,a3,a4,a5,a6,a7 or all)"
 $TargetAudit = Read-Host -Prompt "Tool to Use: "
 
 
@@ -1531,6 +1532,41 @@ function SIDTranslator{
 }
 
 
+function DeviceIdTranslator{
+
+    Write-Host ""
+    Write-Host "===================DeviceId Translator==========================" -ForegroundColor Green
+
+    $deviceId = Read-Host "Enter DeviceId (e.g 8a1d7b8a-....): "
+    $guidObject = [guid]$deviceId # Convert the string GUID into a system GUID object
+    $guidBytes = $guidObject.ToByteArray()
+    $hexGuid = "\" + (($guidBytes | ForEach-Object { $_.ToString("X2") }) -join "\") # In LDAP, objectGUID is stored as a byte array. Convert the GUID to bytes and format it as an escaped hex string (e.g., \b7\2e\b6\3a...)
+
+
+    $Searcher = New-Object System.DirectoryServices.DirectorySearcher($directoryEntry)
+    $Searcher.Filter = "(&(objectClass=user)(objectGUID=$hexGuid))"
+    $Searcher.PropertiesToLoad.AddRange(@("name", "dnshostname", "distinguishedname"))
+
+    $result = $Searcher.FindOne()
+
+    if ($result){
+        $dn = $result.Properties.distinguishedname[0]
+        $computer = Get-ADComputer -Identity $dn -Properties DNSHostName, Enabled, SID, SamAccountName
+        Write-Host ""
+        Write-Host "The hostname associated with this DeviceId is:"$computer.dnshostname"" -ForegroundColor Cyan
+    
+        if($computer){
+            #$account | Add-Member -NotePropertyName DomainAccount -NotePropertyValue "$TargetDomainName\$($account.SamAccountName)" -Force
+            $computer | Format-List
+        }
+    }else{
+        Write-Host "Error: Could not resolve the DeviceId '$deviceId'."
+    }
+}
+
+
+
+
 function UserDump{
 
     Write-Host ""
@@ -1594,6 +1630,10 @@ try {
     
         "r3" {
             UserDump -TargetDomainName $TargetDomain -TargetDomainDN $TargetDomainDN -Credential $Credential -DomainController $dcToUse -OutpuPath $OutputPath
+        }
+
+        "r4" {
+            DeviceIdTranslator -TargetDomainName $TargetDomain -TargetDomainDN $TargetDomainDN -Credential $Credential -DomainController $dcToUse -OutpuPath $OutputPath
         }
     
         "a1" {
